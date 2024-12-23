@@ -39,6 +39,7 @@ Remember to append the path to the new BLAST bin directory to the existing PATH 
 
 ## Usage
 
+Clone this repo to your computer and install the dependencies. 
 To run the script, go to the script folder and then use the following command:
 
 
