@@ -81,5 +81,6 @@ Upon choosing GenBank as the file type, you will be prompted to select one of th
 - **Plasmid Maps:** PNG images representing the annotated plasmid.
 
 The Databases can be downloaded from [here](https://rochester.box.com/v/PlasAnndatabases)
+The first time the pipeline is run it will automatically download the databases.
 
 Regarding any issues [Contact me](hislam2@ur.rochester.edu)
