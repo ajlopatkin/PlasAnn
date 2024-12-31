@@ -1,6 +1,6 @@
 # Plasmid Annotation Tool
 
-This tool is designed for annotating plasmid sequences from FASTA or GenBank files. It utilizes various databases and tools to provide a comprehensive annotation of plasmid sequences, including the detection of coding sequences (CDS), origins of replication, transposons, and more.
+This tool is designed for annotating large plasmid sequences from FASTA or GenBank files. It utilizes various databases and tools to provide a comprehensive annotation of plasmid sequences, including the detection of coding sequences (CDS), origins of replication, transposons, and more.
 
 ## Features
 
@@ -21,10 +21,10 @@ This script requires the following Python packages:
 - `matplotlib`
 - `pycirclize`
 
-Additionally, it relies on external tools such as Prodigal. Ensure these dependencies are installed:
+The pipelines can be installed using pip using 
 
 ```bash
-pip install gdown pandas biopython matplotlib
+pip install plasann
 ```
 
 ### Installing Prodigal
@@ -38,17 +38,11 @@ Remember to append the path to the new BLAST bin directory to the existing PATH 
 
 ## Usage
 
-To run the script, go to the script folder and then use the following command:
+To run the pipeline, use the following command:
 
 
 ```bash
-python annotate_plasmids.py -i <input_file_or_directory> -o <output_directory> -t <file_type>
-```
-
-if you are running the script from other folder be sure to specify the path to annotate_plasmid.py. For example:
-
-```bash
-python /path_to_the_main_pipeline_folder/Scripts/annotate_plasmids.py -i <input_file_or_directory> -o <output_directory> -t <file_type>
+PlasAnn -i <input_file_or_directory> -o <output_directory> -t <file_type>
 ```
 
 ### Parameters
@@ -79,6 +73,6 @@ Upon choosing GenBank as the file type, you will be prompted to select one of th
 - **GenBank Files:** Annotated GenBank files with updated feature annotations.
 - **Plasmid Maps:** PNG images representing the annotated plasmid.
 
-This tool is for large plasmids.
+The scripts are uploaded in the Scripts folder in this repository
 
 Regarding any issues [Contact me](hislam2@ur.rochester.edu)
