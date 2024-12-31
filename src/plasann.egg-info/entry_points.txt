@@ -1,0 +1,2 @@
+[console_scripts]
+PlasAnn = plasann.cli:main

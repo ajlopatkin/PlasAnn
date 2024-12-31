@@ -1,0 +1,13 @@
+README.md
+pyproject.toml
+src/plasann/__init__.py
+src/plasann/annotate_plasmid.py
+src/plasann/cli.py
+src/plasann/draw_plasmid.py
+src/plasann/essential_annotation.py
+src/plasann.egg-info/PKG-INFO
+src/plasann.egg-info/SOURCES.txt
+src/plasann.egg-info/dependency_links.txt
+src/plasann.egg-info/entry_points.txt
+src/plasann.egg-info/requires.txt
+src/plasann.egg-info/top_level.txt

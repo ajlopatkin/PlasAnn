@@ -1,0 +1,10 @@
+Metadata-Version: 2.1
+Name: plasann
+Version: 1.0.1
+Summary: A tool for annotating plasmid sequences
+Requires-Python: >=3.7
+Requires-Dist: pandas
+Requires-Dist: matplotlib
+Requires-Dist: pycirclize
+Requires-Dist: gdown
+Requires-Dist: biopython
