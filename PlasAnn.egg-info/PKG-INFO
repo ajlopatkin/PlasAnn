@@ -1,0 +1,12 @@
+Metadata-Version: 2.1
+Name: PlasAnn
+Version: 1.0.1
+Summary: A tool for plasmid annotation and visualization
+Author: Habibul Islam
+Author-email: hislam2@ur.rochester.edu
+License-File: LICENSE
+Requires-Dist: pandas
+Requires-Dist: matplotlib
+Requires-Dist: pycirclize
+Requires-Dist: biopython
+Requires-Dist: gdown

@@ -1,0 +1,13 @@
+LICENSE
+MANIFEST.in
+setup.py
+PlasAnn.egg-info/PKG-INFO
+PlasAnn.egg-info/SOURCES.txt
+PlasAnn.egg-info/dependency_links.txt
+PlasAnn.egg-info/entry_points.txt
+PlasAnn.egg-info/requires.txt
+PlasAnn.egg-info/top_level.txt
+plasann/__init__.py
+plasann/annotate_plasmid.py
+plasann/draw_plasmid.py
+plasann/essential_annotation.py
