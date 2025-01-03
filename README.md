@@ -32,6 +32,8 @@ or conda:
 conda install bioconda::PlasAnn
 ```
 
+In arm64 osx Blast is not installable through conda. We suggest installing blast using [homebrew](https://formulae.brew.sh/formula/blast) \
+Or you can also install command line blast from [here](https://www.ncbi.nlm.nih.gov/books/NBK569861/)
 ## Usage
 
 To run the pipeline, use the following command:
