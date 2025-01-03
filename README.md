@@ -21,13 +21,13 @@ This script requires the following Python packages:
 - `matplotlib`
 - `pycirclize`
 
-The pipelines can be installed using pip using 
+The pipelines can be installed using pip: 
 
 ```bash
 pip install plasann
 ```
 
-and using conda:
+or conda:
 ```bash
 conda install bioconda::PlasAnn
 ```
