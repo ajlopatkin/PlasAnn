@@ -43,7 +43,7 @@ Command line blast needs to be installed. Follow the installation instruction [h
 Remember to append the path to the new BLAST bin directory to the existing PATH setting. \
 
 For linux, Windows and osx64 users Blast can be installed using : conda install bioconda::blast\
-For osxARM64 we suggest we suggest usiing Blast from the link above Due to compatibility issues, . \
+For osxARM64 we suggest usiing Blast from the link above Due to compatibility issues, . \
 
 ## Usage
 
