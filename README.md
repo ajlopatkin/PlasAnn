@@ -32,7 +32,7 @@ or conda:
 conda install bioconda::PlasAnn
 ```
 
-For osx 64 arm (Mac with apple silicon) we suggest doing pip install plasann because of compatibility issues. 
+For osx 64 arm (Mac with apple silicon) we suggest doing pip install plasann because of compatibility issues with blast and prodigal conda installation. 
 Also for osx 64 arm (Mac with apple silicon) install Blast and Prodigal beforehand using 
 ```bash
 brew install blast
