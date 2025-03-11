@@ -8,8 +8,8 @@ import argparse
 import gdown
 
 sys.path.append(os.path.join(os.path.dirname(__file__), 'Scripts'))
-import essential_annotation
-import draw_plasmid
+from plasann import essential_annotation
+from plasann import draw_plasmid
 
 def download_databases(output_dir):
     # Check if the database directory already exists
