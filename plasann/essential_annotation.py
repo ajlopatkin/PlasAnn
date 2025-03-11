@@ -664,6 +664,68 @@ def get_sequence_length_from_header(file_path):
         print(f"Failed to read sequence length from header: {e}")
     return 0
 
+
+
+from Bio import SeqIO
+'''def extract_genbank_edited(file_path):
+    cds_list = []
+
+    with open(file_path, "r") as handle:
+        for record in SeqIO.parse(handle, "genbank"):
+            for feature in record.features:
+                if feature.type == "CDS":
+                    start = int(feature.location.start)
+                    end = int(feature.location.end)
+                    location = (start, end)
+                    strand = "Yes" if feature.location.strand == 1 else "No"
+                    translation = feature.qualifiers.get("translation", [""])[0]
+                    cds_list.append([location, strand, translation])
+    return cds_list
+from Bio import SeqIO'''
+
+def extract_genbank_edited(gbk_file_path):
+    cds_list = []
+    with open(gbk_file_path, "r") as handle:
+        for record in SeqIO.parse(handle, "genbank"):
+            for feature in record.features:
+                if feature.type == "CDS":
+                    if hasattr(feature.location, 'parts') and len(feature.location.parts) > 1:
+                        # For features with multiple parts (joined locations)
+                        parts = feature.location.parts
+                        positions = [(int(part.start), int(part.end)) for part in parts]
+                        
+                        # Sort positions by the start position
+                        positions.sort()
+                        
+                        # If this is a join that wraps around the origin (first start is 0 or close to 0)
+                        if positions[0][0] < 10 and feature.location.strand == -1:
+                            # For complement(join(80685..80843,1..240))
+                            # We want start=240, end=80685
+                            start = positions[0][1]  # Use end of first part (240)
+                            end = positions[-1][0]   # Use start of last part (80685)
+                        else:
+                            # Regular feature
+                            start = positions[0][0]
+                            end = positions[-1][1]
+                    else:
+                        # Regular locations
+                        start = int(feature.location.start)
+                        end = int(feature.location.end)
+                    
+                    # Set the location
+                    location = (start, end)
+                    
+                    # Determine strand
+                    strand = "Yes" if feature.location.strand == 1 else "No"
+                    
+                    # Get translation
+                    translation = feature.qualifiers.get("translation", [""])[0]
+                    
+                    cds_list.append([location, strand, translation])
+    
+    return cds_list
+
+
 def extract_genbank_info(file_path):
     
     try:
@@ -938,6 +1000,9 @@ def initial_blast_against_database_genbank(list_of_cds, list_of_positions, datab
         selected_rows_per_query.drop(['index', 'Title', 'Pident', 'Query Length', 'Subject Length'], axis=1, inplace=True)
 
     return selected_rows_per_query
+
+
+
 
 def process_final_dataframe_genbank(selected_rows_per_query, replicon_dataframe, oric_dataframe, orit_dataframe, transposon):
     merged_df = pd.concat([selected_rows_per_query, replicon_dataframe, oric_dataframe, orit_dataframe, transposon], ignore_index=True)
@@ -1308,4 +1373,52 @@ def fix_genbank_date(file_path):
     with open(file_path, 'w') as file:
         file.writelines(updated_lines)
 
+from Bio import SeqIO
+from Bio.SeqFeature import SeqFeature, FeatureLocation
+
+
+def update_genbank_file_with_reverse(genbank_path, cds_list):
+    # Extract locations where the strand is 'No'
+    locations_with_no = [cds_range for (cds_range, strand, _) in cds_list if strand == 'No']
+    
+    with open(genbank_path, 'r') as file:
+        content = file.readlines()
+
+    updated_content = []
+    for line in content:
+        if line.strip().startswith('CDS'):
+            location = line.split()[1]
+            is_complement = 'complement' in location
+            if is_complement:
+                location = location[11:-1]  # Strip complement( and )
+            start, end = map(int, location.replace('..', ' ').replace('<', '').replace('>', '').split())
+
+            # Check if this CDS needs a complement tag
+            for (cds_start, cds_end) in locations_with_no:
+                if cds_start == start and cds_end == end and not is_complement:
+                    line = line.replace(location, f"complement({location})")
+                    break
+        
+        updated_content.append(line)
+
+    # Write the updated content back to the GenBank file
+    with open(genbank_path, 'w') as file:
+        file.writelines(updated_content)
+
+def adjust_start_positions_in_place(file_path):
+    """
+    Adjusts the start position of each feature in a GenBank file by adding 1, modifying the file in place.
+
+    Args:
+    file_path (str): Path to the GenBank file to be modified.
+    """
+    # Read the original content
+    with open(file_path, 'r') as file:
+        content = file.readlines()
+
+    # Adjust the start positions
+    with open(file_path, 'w') as file:
+        for line in content:
+            adjusted_line = re.sub(r'(\d+)\.\.(\d+)', lambda m: f"{int(m.group(1)) + 1}..{m.group(2)}", line)
+            file.write(adjusted_line)
 

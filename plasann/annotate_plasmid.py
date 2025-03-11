@@ -7,8 +7,10 @@ import shutil
 import argparse
 import gdown
 
-from . import essential_annotation
-from . import draw_plasmid
+sys.path.append(os.path.join(os.path.dirname(__file__), 'Scripts'))
+import essential_annotation
+import draw_plasmid
+import edited_draw_plasmid
 
 def download_databases(output_dir):
     # Check if the database directory already exists
@@ -112,6 +114,8 @@ def annotate_genbank_retain(plasmid, pathofdir, default_db_path, oric_data, orit
         os.makedirs(output_path)
     # Use the correct file path to extract GenBank information
     CDS_list, DNA_seq, length_of_seq = essential_annotation.extract_genbank_info(file_path)
+    CDS_info= essential_annotation.extract_genbank_edited(file_path)
+    #print(CDS_info)
     if DNA_seq =="":
         if DNA_seq =="":
             print(f"No sequence data available for {plasmid}.\n")
@@ -134,18 +138,20 @@ def annotate_genbank_retain(plasmid, pathofdir, default_db_path, oric_data, orit
             duration = end_time - start_time
             print(f"The function took {duration} seconds to complete for {plasmid}.")
         return
-    DNA_CDS_list = essential_annotation.editing_cds_list(CDS_list)
+    list_of_cds = [cds[2] for cds in CDS_info if cds[2]]  # Get sequences
+    list_of_positions = [(cds[0][0], cds[0][1]) for cds in CDS_info if cds[2]]  # Get positions
+    #DNA_CDS_list = essential_annotation.editing_cds_list(CDS_list)
     essential_annotation.save_fasta_file(plasmid, DNA_seq)
     path_of_fasta = 'tmp_files'
     positions_of_coding_sequences = essential_annotation.getpositionsofCDS_genbank(file_path)
-    complement_start, complement_end = essential_annotation.complementpositions_genbank(file_path,positions_of_coding_sequences)
+    complement_start, complement_end = essential_annotation.complementpositions_genbank(file_path,list_of_positions)
     database = essential_annotation.makedatabasefromcsvfile(default_db_path)
-    Initial_dataframe = essential_annotation.initial_blast_against_database_genbank(DNA_CDS_list, positions_of_coding_sequences, default_db_path)
+    Initial_dataframe = essential_annotation.initial_blast_against_database_genbank(list_of_cds, list_of_positions, default_db_path)
+    Initial_dataframe.to_csv('../test.csv')
     oric_dataframe = essential_annotation.blast_against_oric_dataframe(oric_data, plasmid, path_of_fasta)
     orit_dataframe = essential_annotation.blast_against_orit_dataframe(orit_data, plasmid, path_of_fasta)
     replicon_dataframe = essential_annotation.blast_against_replicon_database(plasmidfinder_data, plasmid, path_of_fasta)
     transposon_dataframe = essential_annotation.blast_against_transposon_database(transposon_data, plasmid, path_of_fasta, Initial_dataframe)
-
     final_dataframe = essential_annotation.merge_all_ther_database_and_fix_accordingly(Initial_dataframe, oric_dataframe, orit_dataframe, transposon_dataframe, replicon_dataframe)
     final_dataframe.to_csv('/Users/habibulislam/Desktop/Database_stats/test/F_final.csv', index=False)
     output_path = os.path.join(output_directory, plasmid)
@@ -154,6 +160,8 @@ def annotate_genbank_retain(plasmid, pathofdir, default_db_path, oric_data, orit
     final_dataframe.to_csv(os.path.join(output_path, f"Annotation_table_for_{plasmid}.csv"))
     output_path_for_genbank = os.path.join(output_path, f"Annotation_gbk_file_for_{plasmid}.gbk")
     essential_annotation.make_genbank_file_for_retaining_cds(DNA_seq, final_dataframe, output_path_for_genbank, plasmid,complement_start, complement_end)
+    essential_annotation.update_genbank_file_with_reverse(output_path_for_genbank, CDS_info)
+    essential_annotation.adjust_start_positions_in_place(output_path_for_genbank)
     plasmid_map_path = os.path.join(output_path, f"Annotated_Map_for_{plasmid}.png")
     draw_plasmid.draw_plasmid_map_from_genbank_file(output_path_for_genbank, plasmid_map_path, plasmid)
     essential_annotation.fix_genbank_date(output_path_for_genbank)
