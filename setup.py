@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='PlasAnn',
-    version='1.0.2',
+    version='1.0.3',
     author='Habibul Islam',
     author_email='hislam2@ur.rochester.edu',
     description='A tool for plasmid annotation and visualization',
