@@ -17,7 +17,7 @@ setup(
     ],
     entry_points={
         'console_scripts': [
-            'PlasAnn=plasann.annotate_plasmid:main',
+            'PlasAnn=plasann.cli:run_main',
         ],
     },
 )
