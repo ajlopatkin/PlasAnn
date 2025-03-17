@@ -1,0 +1,62 @@
+Metadata-Version: 2.2
+Name: plasann
+Version: 1.0.7
+Summary: A plasmid annotation tool
+Home-page: https://github.com/ajlopatkin/PlasAnn
+Author: Habibul Islam
+Author-email: hislam2@ur.rochester.edu
+Project-URL: Bug Tracker, https://github.com/ajlopatkin/plasann/issues
+Classifier: Programming Language :: Python :: 3
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Operating System :: OS Independent
+Classifier: Topic :: Scientific/Engineering :: Bio-Informatics
+Requires-Python: >=3.6
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Requires-Dist: biopython>=1.78
+Requires-Dist: pandas>=1.0.0
+Requires-Dist: matplotlib>=3.0.0
+Requires-Dist: pycirclize>=0.1.0
+Requires-Dist: gdown>=4.0.0
+Dynamic: author
+Dynamic: author-email
+Dynamic: classifier
+Dynamic: description
+Dynamic: description-content-type
+Dynamic: home-page
+Dynamic: project-url
+Dynamic: requires-dist
+Dynamic: requires-python
+Dynamic: summary
+
+# PlasAnn
+
+A comprehensive plasmid annotation tool that enables the identification and visualization of key plasmid features.
+
+## Installation
+pip install plasann
+
+## Usage
+PlasAnn -i input.fasta -o output_directory -t fasta
+
+or for GenBank files:
+PlasAnn -i input.gbk -o output_directory -t genbank
+
+## Features
+
+- Automated identification of coding sequences
+- Detection of origins of replication (oriC)
+- Detection of origins of transfer (oriT)
+- Identification of mobile genetic elements
+- Recognition of replicon types
+- Generation of annotated GenBank files
+- Creation of circular plasmid maps
+
+## Dependencies
+
+- BLAST+ (must be installed separately)
+- Prodigal (must be installed separately)
+
+## License
+
+MIT

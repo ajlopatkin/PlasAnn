@@ -1,0 +1,15 @@
+LICENSE
+README.md
+pyproject.toml
+setup.py
+Scripts/__init__.py
+Scripts/__main__.py
+Scripts/annotate_plasmid.py
+Scripts/draw_plasmid.py
+Scripts/essential_annotation.py
+plasann.egg-info/PKG-INFO
+plasann.egg-info/SOURCES.txt
+plasann.egg-info/dependency_links.txt
+plasann.egg-info/entry_points.txt
+plasann.egg-info/requires.txt
+plasann.egg-info/top_level.txt
