@@ -1,2 +1,0 @@
-[console_scripts]
-PlasAnn = Scripts.annotate_plasmid:cli
