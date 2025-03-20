@@ -77,3 +77,9 @@ Upon choosing GenBank as the file type, you will be prompted to select one of th
 The scripts are uploaded in the Scripts folder in this repository
 
 Regarding any issues [Contact me](hislam2@ur.rochester.edu)
+
+
+### Note:
+You will se different version when you do pip install (1.0.7) and conda installl (1.0.8)
+Those are the same versions. Both are basically same version. 
+In next update this will be fixed.
