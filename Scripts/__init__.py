@@ -7,4 +7,4 @@ categorization of plasmid features including coding sequences, origins of replic
 mobile genetic elements, and replicons.
 """
 
-__version__ = "1.0.7"
+__version__ = "1.0.8"

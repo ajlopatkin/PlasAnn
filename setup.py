@@ -5,7 +5,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setup(
     name="plasann",
-    version="1.0.7",
+    version="1.0.8",
     author="Habibul Islam",
     author_email="hislam2@ur.rochester.edu",
     description="A plasmid annotation tool",
