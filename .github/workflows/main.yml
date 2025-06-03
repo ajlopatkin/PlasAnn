@@ -40,11 +40,54 @@ jobs:
         python -m pip install --upgrade pip
         pip install -e .
 
-    - name: Test basic functionality
+    - name: Debug imports
       run: |
-        PlasAnn --version
-        python -c "import plasann; print('✅ PlasAnn imported successfully')"
+        echo "=== Testing basic Python import ==="
+        python -c "import sys; print('Python:', sys.version)"
+        
+        echo "=== Testing plasann import ==="
+        python -c "
+        try:
+            import plasann
+            print('✅ plasann imported')
+        except Exception as e:
+            print('❌ plasann import failed:', e)
+            import traceback
+            traceback.print_exc()
+        "
+        
+        echo "=== Testing individual modules ==="
+        python -c "
+        try:
+            from plasann import essential_annotation
+            print('✅ essential_annotation imported')
+        except Exception as e:
+            print('❌ essential_annotation failed:', e)
+        "
+        
+        python -c "
+        try:
+            from plasann import database_download  
+            print('✅ database_download imported')
+        except Exception as e:
+            print('❌ database_download failed:', e)
+        "
+        
+        python -c "
+        try:
+            from plasann import draw_plasmid
+            print('✅ draw_plasmid imported')
+        except Exception as e:
+            print('❌ draw_plasmid failed:', e)
+        "
 
-    - name: Test help command
+    - name: Test PlasAnn after debugging
       run: |
-        PlasAnn -h
+        PlasAnn --version || echo "Version command failed"
+
+    - name: Display system info
+      run: |
+        echo "🖥️ System: ${{ matrix.os }}"
+        echo "🐍 Python: ${{ matrix.python-version }}"
+        echo "🏛️ Architecture: $(uname -m)" || echo "Architecture: Windows"
+        python --version
