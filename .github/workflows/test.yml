@@ -12,11 +12,11 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-
+    
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
+        
       - name: Set up Miniconda
         uses: conda-incubator/setup-miniconda@v3
         with:
@@ -25,14 +25,14 @@ jobs:
           activate-environment: plasann-env
           channels: conda-forge,bioconda,defaults
           channel-priority: strict
-
+          
       - name: Install dependencies (Ubuntu)
         if: runner.os == 'Linux'
         shell: bash -l {0}
         run: |
           sudo apt-get update
           sudo apt-get install -y ncbi-blast+ prodigal infernal
-
+          
       - name: Install dependencies (macOS)
         if: runner.os == 'macOS'
         shell: bash -l {0}
@@ -41,19 +41,20 @@ jobs:
           brew install blast prodigal
           brew tap brewsci/bio
           brew install infernal
-
+          
       - name: Install dependencies (Windows via Conda)
         if: runner.os == 'Windows'
         shell: bash -l {0}
         run: |
           conda install -y -c bioconda -c conda-forge blast prodigal infernal
-
+          
       - name: Install PlasAnn
         shell: bash -l {0}
         run: |
           pip install .
-
-      - name: Debug: directory listing
+          
+      - name: Debug directory listing
+        continue-on-error: true
         shell: bash -l {0}
         run: |
           echo "=== Current directory ==="
@@ -64,10 +65,8 @@ jobs:
           ls -la
           echo "=== Check plasann ==="
           ls plasann || echo "plasann folder not found"
-        continue-on-error: true
-
+          
       - name: Run PlasAnn help command
         shell: bash -l {0}
         run: |
           PlasAnn --help
-
