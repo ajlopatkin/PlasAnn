@@ -1,4 +1,4 @@
-name: PlasAnn Cross-Platform Tests
+name: PlasAnn Windows Debug
 on:
   push:
     branches: [ main, master, v1.1.0 ]
@@ -6,13 +6,11 @@ on:
     branches: [ main, master ]
 
 jobs:
-  test:
-    runs-on: ${{ matrix.os }}
+  debug-windows:
+    runs-on: windows-latest
     strategy:
-      fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-13, macos-latest]
-        python-version: ['3.9', '3.10', '3.11']
+        python-version: ['3.9']
         
     steps:
     - name: Checkout code
@@ -23,98 +21,52 @@ jobs:
       with:
         python-version: ${{ matrix.python-version }}
         
-    - name: Install system dependencies (Ubuntu)
-      if: runner.os == 'Linux'
+    - name: Check files exist
       run: |
-        sudo apt-get update
-        sudo apt-get install -y ncbi-blast+ prodigal infernal
+        dir
+        echo "--- pyproject.toml ---"
+        type pyproject.toml
+        echo "--- plasann directory ---"
+        dir plasann
+        echo "--- __init__.py ---"
+        type plasann\__init__.py
         
-    - name: Install system dependencies (macOS)
-      if: runner.os == 'macOS'
+    - name: Try pip install with verbose output
       run: |
-        # Add the bioinformatics tap first
-        brew tap brewsci/bio
-        brew install blast prodigal infernal
+        echo "=== Upgrading pip ==="
+        python -m pip install --upgrade pip
+        echo "=== Installing with verbose output ==="
+        pip install -v -e .
+        echo "=== Checking what got installed ==="
+        pip list
+        pip show plasann
         
-    - name: Install system dependencies (Windows)
-      if: runner.os == 'Windows'
+    - name: Test basic import
       run: |
-        # For now, skip external tools on Windows
-        echo "External bioinformatics tools not installed on Windows"
+        echo "=== Python version ==="
+        python --version
+        echo "=== Python path ==="
+        python -c "import sys; [print(p) for p in sys.path]"
+        echo "=== Try import ==="
+        python -c "import plasann; print('SUCCESS:', plasann.__file__)"
         
-    - name: Install Python dependencies
+  test-unix:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.9']
+        
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+        
+    - name: Install and test (for comparison)
       run: |
         python -m pip install --upgrade pip
         pip install -e .
-        
-    - name: Debug imports (Unix)
-      if: runner.os != 'Windows'
-      run: |
-        echo "=== Testing basic Python import ==="
-        python -c "import sys; print('Python:', sys.version)"
-        
-        echo "=== Testing plasann import ==="
-        python -c "
-        try:
-            import plasann
-            print('✅ plasann imported')
-        except Exception as e:
-            print('❌ plasann import failed:', e)
-            import traceback
-            traceback.print_exc()
-        "
-        
-        echo "=== Testing individual modules ==="
-        python -c "
-        try:
-            from plasann import essential_annotation
-            print('✅ essential_annotation imported')
-        except Exception as e:
-            print('❌ essential_annotation failed:', e)
-        "
-        
-        python -c "
-        try:
-            from plasann import database_download  
-            print('✅ database_download imported')
-        except Exception as e:
-            print('❌ database_download failed:', e)
-        "
-        
-        python -c "
-        try:
-            from plasann import draw_plasmid
-            print('✅ draw_plasmid imported')
-        except Exception as e:
-            print('❌ draw_plasmid failed:', e)
-        "
-        
-    - name: Debug imports (Windows) 
-      if: runner.os == 'Windows'
-      shell: cmd
-      run: |
-        echo === Testing basic Python import ===
-        python -c "import sys; print('Python:', sys.version)"
-        
-        echo === Testing plasann import ===
-        python -c "import plasann; print('plasann imported successfully')" || echo "plasann import failed"
-        
-        echo === Testing individual modules ===
-        python -c "from plasann import essential_annotation; print('essential_annotation imported')" || echo "essential_annotation failed"
-        python -c "from plasann import database_download; print('database_download imported')" || echo "database_download failed"
-        python -c "from plasann import draw_plasmid; print('draw_plasmid imported')" || echo "draw_plasmid failed"
-        
-    - name: Test PlasAnn CLI
-      run: |
-        # Test CLI with fallback methods
-        PlasAnn --version || python -m plasann --version || echo "Both CLI methods failed"
-        
-    - name: Test dependency check
-      run: |
-        PlasAnn --check-deps || python -m plasann --check-deps || echo "Dependency check failed"
-        
-    - name: Display system info
-      run: |
-        echo "🖥️ System: ${{ matrix.os }}"
-        echo "🐍 Python: ${{ matrix.python-version }}"
-        python --version
+        python -c "import plasann; print('SUCCESS:', plasann.__file__)"
