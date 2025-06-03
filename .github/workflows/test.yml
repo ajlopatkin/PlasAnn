@@ -11,7 +11,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest]
 
     steps:
       - name: Checkout code
@@ -52,7 +52,24 @@ jobs:
         run: |
           pip install .
 
-      - name: Run tool check
+      - name: Debug: directory listing
+        continue-on-error: true
+        run: |
+          echo "=== Current directory ==="
+          pwd
+          echo "=== Git commit ==="
+          git rev-parse HEAD
+          echo "=== Directory listing (case sensitive) ==="
+          ls -la
+          echo "=== Looking for plasann directory ==="
+          ls -la | grep -i plasann || echo "No plasann directory found"
+          echo "=== Checking different case variations ==="
+          test -d plasann && echo "plasann (lowercase) exists"
+          test -d Plasann && echo "Plasann (capital P) exists"
+          test -d PlasAnn && echo "PlasAnn (camel case) exists"
+          test -d PLASANN && echo "PLASANN (uppercase) exists"
+
+      - name: Run PlasAnn help command
         shell: bash -l {0}
         run: |
           PlasAnn --help
