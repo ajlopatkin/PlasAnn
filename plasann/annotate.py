@@ -13,6 +13,10 @@ from Bio import SeqIO, Entrez
 from Bio.Data import CodonTable
 from collections import defaultdict
 import uuid
+import shutil
+import time  
+import threading
+import uuid
 
 # Version information
 __version__ = "1.1.0"
@@ -20,6 +24,19 @@ __author__ = "Habibul Islam"
 __email__ = "hislam2@ur.rochester.edu"
 
 CDS_dataframe = pd.DataFrame()
+
+def check_disk_space(required_gb=1):
+    """Check available disk space"""
+    try:
+        free_bytes = shutil.disk_usage('.').free
+        free_gb = free_bytes / (1024**3)
+        
+        if free_gb < required_gb:
+            raise Exception(f"Insufficient disk space: {free_gb:.1f}GB available, {required_gb}GB required")
+        return True
+    except Exception as e:
+        print(f"⚠️ Warning: Could not check disk space: {e}")
+        return True  # Continue anyway
 
 def print_version():
     """Print PlasAnn version information"""
@@ -215,7 +232,7 @@ def run_on_single_genbank(input_path, output_base, use_overwrite=False, custom_n
 
     return CDS_dataframe, output_folder, output_name, fasta_length, fasta_sequence
 
-def process_single_file_complete_pipeline(input_path, output_base, file_type, custom_name=None, 
+'''def process_single_file_complete_pipeline(input_path, output_base, file_type, custom_name=None, 
                                          overwrite=False, shared_session=False, 
                                          uniprot_blast=False, uniprot_tsv=None, min_identity=30):
     """Process a single file through the complete annotation pipeline"""
@@ -385,8 +402,266 @@ def process_single_file_complete_pipeline(input_path, output_base, file_type, cu
         uniprot_db_dir = "uniprot_blast_db"
         if os.path.exists(uniprot_db_dir):
             shutil.rmtree(uniprot_db_dir, ignore_errors=True)
-        return False
+        return False'''
 
+
+
+def process_single_file_complete_pipeline(input_path, output_base, file_type, custom_name=None, 
+                                         overwrite=False, shared_session=False, 
+                                         uniprot_blast=False, uniprot_tsv=None, min_identity=30):
+    """Process a single file through the complete annotation pipeline - ENHANCED VERSION"""
+    global CDS_dataframe
+    
+    # Reset global CDS_dataframe for each file
+    CDS_dataframe = pd.DataFrame()
+    
+    print(f"🧬 Processing {file_type.upper()} file: {os.path.basename(input_path)}")
+    
+    # ✨ NEW: Pre-flight checks
+    try:
+        check_disk_space(required_gb=1)
+    except Exception as e:
+        print(f"❌ Pre-flight check failed: {e}")
+        return False
+    
+    # Use unique temp directories for each file when in shared session
+    if shared_session:
+        unique_id = str(uuid.uuid4())[:8]
+        blast_temp_dir = f"temp_dir_blast_{unique_id}"
+        temp_dir = f"temp_dir_{unique_id}"
+    else:
+        blast_temp_dir = "temp_dir_blast"
+        temp_dir = "temp_dir"
+    
+    try:
+        # Step 1: Extract CDS with enhanced error handling
+        if file_type == "fasta":
+            result = run_on_single_fasta(input_path, output_base, custom_name)
+        elif file_type == "genbank":
+            result = run_on_single_genbank(input_path, output_base, overwrite, custom_name)
+        
+        # ✨ ENHANCED: Check for various failure modes
+        if result is None:
+            print(f"❌ Failed to process input file {input_path}")
+            return False
+        
+        if len(result) != 5:
+            print(f"❌ Unexpected result format from {input_path}")
+            return False
+            
+        CDS_dataframe, output_folder, output_name, length, sequence = result
+        
+        # ✨ ENHANCED: Check CDS extraction results
+        if CDS_dataframe is None:
+            print(f"❌ CDS extraction returned None for {input_path}")
+            return False
+            
+        if len(CDS_dataframe) == 0:
+            print(f"⚠️ No genes detected in {input_path}")
+            print("   This could mean:")
+            print("   • Very short sequence (< 90bp)")
+            print("   • Poor sequence quality")
+            print("   • No open reading frames found")
+            # Continue with empty dataframe - let user decide
+        
+        # ✨ NEW: Sequence quality checks
+        if sequence is not None:
+            # Check for high N content
+            n_content = sequence.upper().count('N') / len(sequence) if len(sequence) > 0 else 0
+            if n_content > 0.5:
+                print(f"⚠️ High ambiguous nucleotide content ({n_content:.1%}) may affect results")
+            
+            # Check minimum length for meaningful analysis
+            if len(sequence) < 200:
+                print(f"⚠️ Very short sequence ({len(sequence)}bp) - results may be limited")
+        
+        # ✨ NEW: Check for overwrite mode without sequence
+        if file_type == "genbank" and overwrite and sequence is None:
+            print("❌ GenBank overwrite mode requires sequence data")
+            print("   Solutions:")
+            print("   • Use --retain mode instead of --overwrite")
+            print("   • Provide FASTA file as input")
+            print("   • Ensure GenBank file contains sequence data")
+            return False
+        
+        # Step 2: Download and prepare databases (only if not shared session)
+        if not shared_session:
+            print("📥 Preparing databases...")
+            try:
+                download_database()
+                prepare_blast_database()
+            except Exception as e:
+                print(f"❌ Database preparation failed: {e}")
+                return False
+        
+        # ✨ ENHANCED: Validate database before BLAST
+        blast_db_prefix = "database_blast/translations_db"
+        if not os.path.exists(f"{blast_db_prefix}.pin"):
+            print(f"❌ BLAST database not found: {blast_db_prefix}")
+            return False
+        
+        # Step 3: Run annotation pipeline with enhanced error handling
+        if len(CDS_dataframe) > 0:
+            print("🔍 Running BLAST annotation...")
+            try:
+                blast.perform_blast_multiprocessing(CDS_dataframe, blast_db_prefix, blast_temp_dir)
+                blast.annotate_blast_results(blast_temp_dir, "Database/Database.csv")
+                dataframe_after_blast = generate_orf_annotation(CDS_dataframe, blast_temp_dir)
+            except Exception as e:
+                print(f"❌ BLAST annotation failed: {e}")
+                print("   Continuing with basic gene predictions only...")
+                # Create basic annotations without BLAST results
+                dataframe_after_blast = CDS_dataframe.copy()
+                for col in ["Gene Name", "Product", "Category"]:
+                    if col not in dataframe_after_blast.columns:
+                        dataframe_after_blast[col] = "ORF" if col == "Gene Name" else "Open reading frame"
+        else:
+            print("⏭️ No genes found, skipping BLAST annotation")
+            dataframe_after_blast = pd.DataFrame()
+        
+        # ✨ ENHANCED: Check if sequence is available for mobile element detection
+        if sequence is None or len(sequence) == 0:
+            print("⚠️ Sequence content not available - skipping sequence-dependent analyses:")
+            print("   • Origin of replication (oriC) prediction")
+            print("   • Origin of transfer (oriT) detection") 
+            print("   • Transposon and mobile element detection")
+            print("   • ncRNA detection")
+            print("   • Intergenic gene discovery")
+            
+            dataframe_after_transposon = dataframe_after_blast
+            ncrna_df = pd.DataFrame()
+            
+        else:
+            # Full pipeline with sequence-dependent analyses
+            print("🎯 Predicting origins and mobile elements...")
+            try:
+                orit_fastas = ["Database/orit.fna", "Database/oriT_TNcentral.fasta"]
+                rep_fasta = "Database/plasmidfinder.fasta"
+                transposon_fastas = ["Database/tncentral_cleaned.fa","Database/transposon.fasta"]
+                rfam_cm_path = "Database/Rfam.cm"
+                
+                dataframe_after_oric = blast.predict_oriC(sequence, dataframe_after_blast, "Database/oric.fna")
+                dataframe_after_orit = blast.predict_oriT(sequence, dataframe_after_oric, orit_fastas)
+                dataframe_after_replicon = blast.predict_replicons(sequence, dataframe_after_orit, rep_fasta)
+                dataframe_after_transposon = blast.predict_transposons(sequence, dataframe_after_replicon, transposon_fastas)
+                
+                print("🧬 Detecting ncRNAs...")
+                ncrna_df = blast.run_infernal_on_sequence(sequence, rfam_cm_path)
+                
+            except Exception as e:
+                print(f"⚠️ Mobile element detection failed: {e}")
+                print("   Continuing with gene annotations only...")
+                dataframe_after_transposon = dataframe_after_blast
+                ncrna_df = pd.DataFrame()
+        
+        print("📊 Finalizing annotations...")
+        
+        final_dataframe = combine_features(dataframe_after_transposon, ncrna_df, sequence)
+        final_dataframe_fixed = Fixing_dataframe(final_dataframe, sequence)
+        print_sequence_statistics(sequence, output_name, length)
+        
+        # ✨ ENHANCED: Intergenic gene detection with better error handling
+        if sequence is not None and len(sequence) > 0:
+            if file_type == "genbank" and not overwrite:
+                print("📋 Retaining original GenBank annotations - skipping intergenic gene detection")
+            else:
+                try:
+                    print("🔍 Analyzing intergenic regions...")
+                    final_dataframe_fixed = blast.detect_intergenic_genes_simple(final_dataframe_fixed, sequence, blast_temp_dir)
+                except Exception as e:
+                    print(f"⚠️ Intergenic gene detection failed: {e}")
+                    print("   Continuing with current annotations...")
+        
+        # ✨ Enhanced UniProt BLAST with better error handling
+        if uniprot_blast and uniprot_tsv:
+            if os.path.exists(uniprot_tsv):
+                try:
+                    print("🧬 Running optional UniProt BLAST annotation...")
+                    print("⚠️ This step may take several minutes...")
+                    final_dataframe_fixed = blast.uniprot_blast(final_dataframe_fixed, uniprot_tsv, min_identity)
+                    print("✅ UniProt BLAST annotation completed!")
+                except Exception as e:
+                    print(f"⚠️ UniProt BLAST failed: {e}")
+                    print("   Continuing without UniProt annotations...")
+            else:
+                print(f"❌ UniProt TSV file not found: {uniprot_tsv}")
+                print("   Continuing without UniProt annotation...")
+        elif uniprot_blast and not uniprot_tsv:
+            print("❌ UniProt BLAST requested but no TSV file configured")
+        
+        # Step 4: Write outputs with error handling
+        try:
+            output_csv = os.path.join(output_folder, f"{output_name}_annotations.csv")
+            final_dataframe_fixed.to_csv(output_csv, index=False)
+            
+            if uniprot_blast and uniprot_tsv and os.path.exists(uniprot_tsv):
+                output_csv_uniprot = os.path.join(output_folder, f"{output_name}_annotations_with_uniprot.csv")
+                final_dataframe_fixed.to_csv(output_csv_uniprot, index=False)
+                print(f"📊 UniProt-enhanced annotations saved: {output_csv_uniprot}")
+            
+        except Exception as e:
+            print(f"❌ Failed to write CSV outputs: {e}")
+            return False
+        
+        # ✨ ENHANCED: GenBank and map generation with better error handling
+        try:
+            output_genbank = os.path.join(output_folder, f"{output_name}_genbank.gbk")
+            description = "Annotated " + output_name
+            write_genbank_from_annotation(final_dataframe_fixed, sequence, output_genbank, output_name, output_name, description)
+            
+            print("🎨 Creating plasmid map...")
+            output_map = os.path.join(output_folder, f"{output_name}_map.png")
+            
+            map_success = draw_plasmid_map_from_genbank_file(output_genbank, output_map, output_name)
+            if not map_success:
+                print("⚠️ Plasmid map generation failed, but analysis completed successfully")
+                
+        except Exception as e:
+            print(f"⚠️ GenBank/map generation failed: {e}")
+            print("   CSV annotations are still available")
+        
+        # Clean up temp directories (but NOT shared database_blast in shared session)
+        if shared_session:
+            shutil.rmtree(blast_temp_dir, ignore_errors=True)
+            shutil.rmtree(temp_dir, ignore_errors=True)
+        else:
+            shutil.rmtree('database_blast', ignore_errors=True)
+            shutil.rmtree('temp_dir_blast', ignore_errors=True)
+            shutil.rmtree('temp_dir', ignore_errors=True)
+            
+        # Clean up UniProt BLAST database if it was created
+        uniprot_db_dir = "uniprot_blast_db"
+        if os.path.exists(uniprot_db_dir):
+            shutil.rmtree(uniprot_db_dir, ignore_errors=True)
+        
+        print(f"✅ Completed processing {os.path.basename(input_path)}")
+        print(f"   📁 Output folder: {output_folder}")
+        
+        # ✨ ENHANCED: Processing summary
+        if sequence is None:
+            cds_count = len(final_dataframe_fixed[final_dataframe_fixed.get('feature type', '') == 'CDS'])
+            print(f"   📊 CDS-only mode: {cds_count} genes annotated")
+            print(f"   ⚠️ Limited analysis due to missing genomic sequence")
+        else:
+            total_features = len(final_dataframe_fixed)
+            cds_count = len(final_dataframe_fixed[final_dataframe_fixed.get('feature type', '') == 'CDS'])
+            print(f"   📊 Complete analysis: {total_features} total features ({cds_count} genes)")
+        
+        return True
+        
+    except Exception as e:
+        print(f"❌ Error processing {input_path}: {e}")
+        import traceback
+        print("   Full error details:")
+        traceback.print_exc()
+        
+        # Enhanced cleanup on error
+        cleanup_dirs = [blast_temp_dir, temp_dir, 'database_blast', 'temp_dir_blast', 'uniprot_blast_db']
+        for cleanup_dir in cleanup_dirs:
+            if os.path.exists(cleanup_dir):
+                shutil.rmtree(cleanup_dir, ignore_errors=True)
+        
+        return False
 
 def process_folder(input_folder, output_base, file_type, custom_name=None, overwrite=False,
                   uniprot_blast=False, uniprot_tsv=None, min_identity=30):

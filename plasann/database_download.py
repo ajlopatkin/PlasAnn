@@ -13,8 +13,8 @@ from pathlib import Path
 
 # ⚠️ REPLACE "XXXXXXX" WITH YOUR ACTUAL ZENODO RECORD ID ⚠️
 ZENODO_CONFIG = {
-    "record_id": "15570907",  # ← Your actual Zenodo record ID
-    "version": "1.1.0",
+    "record_id": "15583460",  # ← Your actual Zenodo record ID
+    "version": "v2",
     "zip_filename": "plasann_databases_v1.1.0.zip"
 }
 

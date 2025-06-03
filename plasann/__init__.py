@@ -1,4 +1,4 @@
-__version__ = "1.1.0"
+__version__ = "1.1.1"
 
 from .annotate import main as annotate_main, cli_main
 # Update these imports to match the new function names

@@ -10,35 +10,143 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 import tempfile
 from Bio.Seq import Seq
 import hashlib
+import subprocess
+import multiprocessing
+from pathlib import Path
 
+
+def validate_sequence_for_blast(seq, min_length=90):
+    """Validate sequence before BLAST"""
+    if pd.isna(seq) or not seq.strip():
+        return False, "Empty sequence"
+    
+    seq_clean = seq.strip().upper()
+    
+    # Check minimum length
+    if len(seq_clean) < min_length:
+        return False, f"Too short ({len(seq_clean)}bp < {min_length}bp)"
+    
+    # Check for valid nucleotides
+    valid_bases = set('ACGTRYSWKMBDHVN')
+    invalid_bases = set(seq_clean) - valid_bases
+    if invalid_bases:
+        return False, f"Invalid nucleotides: {invalid_bases}"
+    
+    # Check for too many N's
+    n_content = seq_clean.count('N') / len(seq_clean)
+    if n_content > 0.8:
+        return False, f"Too many ambiguous bases ({n_content:.1%})"
+    
+    return True, "Valid"
 
 def run_blast_for_row(idx, seq, tmp_dir, blast_db_prefix, blast_header):
-    if pd.isna(seq) or not seq.strip():
+    """Enhanced BLAST execution with better error handling"""
+    
+    # ✨ NEW: Validate sequence first
+    is_valid, reason = validate_sequence_for_blast(seq)
+    if not is_valid:
+        print(f"⚠️ Skipping ORF {idx}: {reason}")
         return
 
     tmp_dir = Path(tmp_dir)
     query_file = tmp_dir / f"query_{idx}.fasta"
     result_file = tmp_dir / f"blast_result_{idx}.csv"
 
-    # Write query FASTA
-    with open(query_file, "w") as f:
-        f.write(f">query_{idx}\n{seq.strip()}\n")
+    try:
+        # Write query FASTA
+        with open(query_file, "w") as f:
+            f.write(f">query_{idx}\n{seq.strip()}\n")
 
-    # Run BLAST
-    blast_cmd = (
-        f"blastx -query {query_file} -db {blast_db_prefix} "
-        f"-out {result_file} -outfmt '10' -max_target_seqs 10 -evalue 1e-5"
-    )
-    os.system(blast_cmd)
-
-    # Add header
-    if result_file.exists():
-        with open(result_file, "r+") as f:
-            content = f.read()
-            f.seek(0)
-            f.write(blast_header + "\n" + content)
+        # ✨ ENHANCED: Use subprocess with proper error handling
+        blast_cmd = [
+            "blastx", 
+            "-query", str(query_file),
+            "-db", blast_db_prefix,
+            "-out", str(result_file),
+            "-outfmt", "10",
+            "-max_target_seqs", "10", 
+            "-evalue", "1e-5",
+            "-num_threads", "1"  # Single thread per process
+        ]
+        
+        # Run BLAST with timeout
+        result = subprocess.run(
+            blast_cmd,
+            capture_output=True,
+            text=True,
+            timeout=300,  # 5 minute timeout per sequence
+            check=True
+        )
+        
+        # ✨ NEW: Check if BLAST produced output
+        if result_file.exists():
+            with open(result_file, "r") as f:
+                content = f.read().strip()
+            
+            # Distinguish between no hits vs failed BLAST
+            if content:  # Has BLAST hits
+                with open(result_file, "w") as f:
+                    f.write(blast_header + "\n" + content)
+            else:  # No hits found (but BLAST ran successfully)
+                with open(result_file, "w") as f:
+                    f.write(blast_header + "\n")  # Header only
+        else:
+            # BLAST failed to create output file
+            print(f"⚠️ BLAST failed to create output for ORF {idx}")
+            # Create empty file with header
+            with open(result_file, "w") as f:
+                f.write(blast_header + "\n")
+                
+    except subprocess.TimeoutExpired:
+        print(f"⏰ BLAST timeout for ORF {idx} (>5 minutes)")
+        # Create empty result file
+        with open(result_file, "w") as f:
+            f.write(blast_header + "\n")
+            
+    except subprocess.CalledProcessError as e:
+        print(f"❌ BLAST failed for ORF {idx}: {e.stderr}")
+        # Create empty result file  
+        with open(result_file, "w") as f:
+            f.write(blast_header + "\n")
+            
+    except Exception as e:
+        print(f"❌ Unexpected error for ORF {idx}: {e}")
+        # Create empty result file
+        with open(result_file, "w") as f:
+            f.write(blast_header + "\n")
+    
+    finally:
+        # Clean up query file
+        if query_file.exists():
+            query_file.unlink()
 
 def perform_blast_multiprocessing(CDS_dataframe, blast_db_prefix, tmp_dir, max_workers=8):
+    """Enhanced multiprocessing BLAST with validation"""
+    
+    # ✨ NEW: Pre-flight checks
+    if not os.path.exists(f"{blast_db_prefix}.pin"):
+        raise Exception(f"BLAST database not found: {blast_db_prefix}")
+    
+    if len(CDS_dataframe) == 0:
+        print("⚠️ No sequences to BLAST")
+        return
+    
+    # ✨ NEW: Filter valid sequences
+    valid_sequences = []
+    for idx, row in CDS_dataframe.iterrows():
+        seq = row.get("Sequence", "")
+        is_valid, reason = validate_sequence_for_blast(seq)
+        if is_valid:
+            valid_sequences.append((idx, seq))
+        else:
+            print(f"⚠️ Skipping ORF {idx}: {reason}")
+    
+    if not valid_sequences:
+        print("❌ No valid sequences for BLAST")
+        return
+    
+    print(f"🔍 Running BLAST on {len(valid_sequences)}/{len(CDS_dataframe)} sequences")
+    
     tmp_dir = Path(tmp_dir)
     tmp_dir.mkdir(parents=True, exist_ok=True)
 
@@ -48,57 +156,121 @@ def perform_blast_multiprocessing(CDS_dataframe, blast_db_prefix, tmp_dir, max_w
         "s_start", "s_end", "evalue", "bit_score"
     ])
 
+    # ✨ ENHANCED: Adaptive worker count based on system and sequence count
+    import multiprocessing
+    system_cores = multiprocessing.cpu_count()
+    adaptive_workers = min(max_workers, system_cores, len(valid_sequences))
+    
+    print(f"   Using {adaptive_workers} parallel BLAST processes")
+
     tasks = []
-    with ProcessPoolExecutor(max_workers=max_workers) as executor:
-        for idx, row in CDS_dataframe.iterrows():
-            seq = row.get("Sequence", "")
+    completed = 0
+    failed = 0
+    
+    with ProcessPoolExecutor(max_workers=adaptive_workers) as executor:
+        # Submit all tasks
+        for idx, seq in valid_sequences:
             tasks.append(executor.submit(
                 run_blast_for_row, idx, seq, str(tmp_dir), blast_db_prefix, blast_header
             ))
 
-        for f in as_completed(tasks):
+        # Process completed tasks with progress tracking
+        for i, future in enumerate(as_completed(tasks)):
             try:
-                f.result()
+                future.result()
+                completed += 1
             except Exception as e:
-                print(f"❌ Error in task: {e}")
+                print(f"❌ Task {i} failed: {e}")
+                failed += 1
+            
+            # Progress indicator
+            total_done = completed + failed
+            if total_done % 10 == 0 or total_done == len(tasks):
+                print(f"   Progress: {total_done}/{len(tasks)} sequences processed")
 
-    print("✅ Multiprocessing BLASTX completed.")
-
-
+    print(f"✅ BLAST completed: {completed} successful, {failed} failed")
+    
+    # ✨ NEW: Validate output files
+    expected_files = len(valid_sequences)
+    actual_files = len(list(tmp_dir.glob("blast_result_*.csv")))
+    
+    if actual_files < expected_files:
+        print(f"⚠️ Warning: Expected {expected_files} result files, found {actual_files}")
 
 def annotate_blast_results(blast_results_dir, database_csv_path):
-    """
-    Adds metadata to each BLAST result file using Database.csv.
-    
-    Parameters:
-    - blast_results_dir: str or Path to directory containing blast_result_*.csv files
-    - database_csv_path: path to Database.csv containing metadata columns
-    
-    Each BLAST result file is updated in place with new columns from the database.
-    """
+    """Enhanced BLAST result annotation with better error handling"""
     blast_results_dir = Path(blast_results_dir)
-    db = pd.read_csv(database_csv_path)
+    
+    # ✨ NEW: Validate database file
+    if not os.path.exists(database_csv_path):
+        raise Exception(f"Database CSV not found: {database_csv_path}")
+    
+    try:
+        db = pd.read_csv(database_csv_path)
+        if len(db) == 0:
+            raise Exception("Database CSV is empty")
+    except Exception as e:
+        raise Exception(f"Could not read database CSV: {e}")
 
     columns_to_add = ["Gene Name", "Category", "Product", "COG_DESCRIPTION", "KEGG_Function"]
+    
+    # ✨ NEW: Check if required columns exist
+    missing_cols = [col for col in columns_to_add if col not in db.columns]
+    if missing_cols:
+        print(f"⚠️ Missing database columns: {missing_cols}")
+        # Add empty columns for missing ones
+        for col in missing_cols:
+            db[col] = ""
 
     blast_files = list(blast_results_dir.glob("blast_result_*.csv"))
     if not blast_files:
         print("⚠️ No BLAST result files found in:", blast_results_dir)
         return
 
+    processed = 0
+    failed = 0
+
     for blast_file in blast_files:
         try:
+            # ✨ NEW: Check if file has content beyond header
+            with open(blast_file, 'r') as f:
+                lines = f.readlines()
+            
+            if len(lines) <= 1:  # Only header or empty
+                continue  # Skip annotation for files with no hits
+            
             blast_df = pd.read_csv(blast_file)
-            blast_df["subject_id"] = blast_df["subject_id"].astype(int)
+            
+            if blast_df.empty:
+                continue
+            
+            # ✨ NEW: Validate subject_id column
+            if 'subject_id' not in blast_df.columns:
+                print(f"⚠️ No subject_id column in {blast_file.name}")
+                continue
+            
+            # Convert to int and handle invalid values
+            blast_df = blast_df.dropna(subset=['subject_id'])
+            blast_df['subject_id'] = blast_df['subject_id'].astype(int)
+            
+            # ✨ NEW: Check for valid subject IDs
+            valid_ids = blast_df['subject_id'].isin(db.index)
+            if not valid_ids.any():
+                print(f"⚠️ No valid subject IDs in {blast_file.name}")
+                continue
+            
+            blast_df = blast_df[valid_ids]
 
             metadata = db.loc[blast_df["subject_id"], columns_to_add].reset_index(drop=True)
             annotated = pd.concat([blast_df, metadata], axis=1)
             annotated.to_csv(blast_file, index=False)
+            processed += 1
 
         except Exception as e:
             print(f"❌ Failed to annotate {blast_file.name}: {e}")
+            failed += 1
 
-    print(f"✅ Annotated {len(blast_files)} BLAST result files with metadata.")
+    print(f"✅ Annotated {processed} BLAST result files ({failed} failed)")
 
 '''def predict_oriC(sequence,annotation_df,doric_fasta,min_length=200,location_buffer=50,window_size=500,sequence_id="plasmid_query"):
 
