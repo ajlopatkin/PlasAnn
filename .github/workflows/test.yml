@@ -54,8 +54,8 @@ jobs:
           pip install .
 
       - name: Debug: directory listing
-        shell: bash -l {0}
         continue-on-error: true
+        shell: bash -l {0}
         run: |
           echo "=== Current directory ==="
           pwd
