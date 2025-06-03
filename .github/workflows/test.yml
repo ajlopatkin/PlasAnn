@@ -11,24 +11,29 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Set up Miniconda
+        uses: conda-incubator/setup-miniconda@v3
         with:
-          python-version: '3.10'
+          auto-update-conda: true
+          python-version: "3.10"
+          activate-environment: plasann-env
+          environment-file: ""
+          channels: conda-forge,bioconda,defaults
+          channel-priority: strict
 
-      - name: Install dependencies on Ubuntu
+      - name: Install dependencies (Ubuntu)
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y ncbi-blast+ prodigal infernal
 
-      - name: Install dependencies on macOS
+      - name: Install dependencies (macOS)
         if: runner.os == 'macOS'
         run: |
           brew update
@@ -36,17 +41,19 @@ jobs:
           brew tap brewsci/bio
           brew install infernal
 
+      - name: Install dependencies (Windows via Conda)
+        if: runner.os == 'Windows'
+        shell: bash -l {0}
+        run: |
+          conda install -y -c bioconda -c conda-forge blast prodigal infernal
+
       - name: Install PlasAnn
+        shell: bash -l {0}
         run: |
           pip install .
 
-      - name: Run tool check on Linux/macOS
-        if: runner.os != 'Windows'
+      - name: Run tool check
+        shell: bash -l {0}
         run: |
           PlasAnn --help
-
-      - name: Windows test (install only)
-        if: runner.os == 'Windows'
-        run: |
-          echo "Windows test passed: PlasAnn installed successfully."
 
