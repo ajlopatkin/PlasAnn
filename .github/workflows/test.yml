@@ -23,18 +23,19 @@ jobs:
           auto-update-conda: true
           python-version: "3.10"
           activate-environment: plasann-env
-          environment-file: ""
           channels: conda-forge,bioconda,defaults
           channel-priority: strict
 
       - name: Install dependencies (Ubuntu)
         if: runner.os == 'Linux'
+        shell: bash -l {0}
         run: |
           sudo apt-get update
           sudo apt-get install -y ncbi-blast+ prodigal infernal
 
       - name: Install dependencies (macOS)
         if: runner.os == 'macOS'
+        shell: bash -l {0}
         run: |
           brew update
           brew install blast prodigal
@@ -59,15 +60,10 @@ jobs:
           pwd
           echo "=== Git commit ==="
           git rev-parse HEAD
-          echo "=== Directory listing (case sensitive) ==="
+          echo "=== Directory listing ==="
           ls -la
-          echo "=== Looking for plasann directory ==="
-          ls -la | grep -i plasann || echo "No plasann directory found"
-          echo "=== Checking different case variations ==="
-          test -d plasann && echo "plasann (lowercase) exists"
-          test -d Plasann && echo "Plasann (capital P) exists"
-          test -d PlasAnn && echo "PlasAnn (camel case) exists"
-          test -d PLASANN && echo "PLASANN (uppercase) exists"
+          echo "=== Check plasann ==="
+          ls plasann || echo "plasann folder not found"
 
       - name: Run PlasAnn help command
         shell: bash -l {0}
