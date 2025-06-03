@@ -8,7 +8,10 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
 
     steps:
       - name: Checkout code
@@ -19,10 +22,18 @@ jobs:
         with:
           python-version: '3.10'
 
-      - name: Install system dependencies
+      - name: Install system dependencies (Linux/macOS)
+        if: runner.os != 'Windows'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y ncbi-blast+ prodigal infernal
+          sudo apt-get update || brew update
+          sudo apt-get install -y ncbi-blast+ prodigal infernal || brew install blast prodigal infernal
+
+      - name: Install system dependencies (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          choco install blast
+          echo "No known easy way to install prodigal or infernal on Windows in CI."
+          echo "Skipping Windows system dependency installation."
 
       - name: Install PlasAnn
         run: |
