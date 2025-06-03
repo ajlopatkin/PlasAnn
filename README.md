@@ -1,85 +1,31 @@
-# Plasmid Annotation Tool
+# PlasAnn
 
-This tool is designed for annotating large plasmid sequences from FASTA or GenBank files. It utilizes various databases and tools to provide a comprehensive annotation of plasmid sequences, including the detection of coding sequences (CDS), origins of replication, transposons, and more.
+A comprehensive plasmid annotation tool that enables the identification and visualization of key plasmid features.
+
+## Installation
+pip install plasann
+
+## Usage
+PlasAnn -i input.fasta -o output_directory -t fasta
+
+or for GenBank files:
+PlasAnn -i input.gbk -o output_directory -t genbank
 
 ## Features
 
-- When the program is run for the first time the Databases will get downloaded automatically. 
-- The pipeline can take single fasta file or a folder of fasta files as input. 
-- It can also take a genbank file or a folder of genbank files as input 
+- Automated identification of coding sequences
+- Detection of origins of replication (oriC)
+- Detection of origins of transfer (oriT)
+- Identification of mobile genetic elements
+- Recognition of replicon types
+- Generation of annotated GenBank files
+- Creation of circular plasmid maps
 
+## Dependencies
 
-## Installation
+- BLAST+ (must be installed separately)
+- Prodigal (must be installed separately)
 
-### Dependencies
+## License
 
-This script requires the following Python packages:
-- `gdown`
-- `argparse`
-- `pandas`
-- `biopython`
-- `matplotlib`
-- `pycirclize`
-
-The pipelines can be installed using pip: 
-
-```bash
-pip install plasann
-```
-
-or conda:
-```bash
-conda install bioconda::PlasAnn
-```
-
-For osx 64 arm (Mac with apple silicon) we suggest using pip install plasann because of compatibility issues with blast and prodigal conda installation. 
-Also for osx 64 arm (Mac with apple silicon) install Blast and Prodigal beforehand using:
-```bash
-brew install blast
-```
-and 
-```bash
-brew install prodigal
-```
-
-or from  [prodigal](https://github.com/hyattpd/Prodigal) and [Blast](https://www.ncbi.nlm.nih.gov/books/NBK569861/)
-
-For all other operating systems, use:
-```bash
-conda install bioconda::PlasAnn
-```
-
-## Usage
-
-To run the pipeline, use the following command:
-
-
-```bash
-PlasAnn -i <input_file_or_directory> -o <output_directory> -t <file_type>
-```
-
-### Parameters
-
-- `-i`, `--input`: Path to the input file or directory containing FASTA or GenBank files.
-- `-o`, `--output`: Path to the output directory where results will be stored.
-- `-t`, `--type`: Type of the input files, either `fasta` or `genbank`.
-
-Upon choosing GenBank as the file type, you will be prompted to select one of the following options:
-1. Annotate the existing CDS in the genbank file. 
-2. Overwrite existing CDS in GenBank files using Prodigal.
-
-### Outputs
-
-- **CSV Tables:** Contain the annotation details for each plasmid.
-- **GenBank Files:** Annotated GenBank files with updated feature annotations.
-- **Plasmid Maps:** PNG images representing the annotated plasmid.
-
-The scripts are uploaded in the Scripts folder in this repository
-
-Regarding any issues [Contact me](hislam2@ur.rochester.edu)
-
-
-### Note:
-You will se different version when you do pip install (1.0.7) and conda installl (1.0.8)
-Those are the same versions. Both are basically same version. 
-In next update this will be fixed.
+MIT
