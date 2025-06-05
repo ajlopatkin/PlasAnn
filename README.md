@@ -1,58 +1,56 @@
-# Plasmid Annotation Tool
+# PlasAnn - Plasmid Annotation Tool
 
-This tool is designed for annotating large plasmid sequences from FASTA or GenBank files. It utilizes various databases and tools to provide a comprehensive annotation of plasmid sequences, including the detection of coding sequences (CDS), origins of replication, transposons, and more.
+This tool is designed for annotating plasmid sequences from FASTA or GenBank files. It provides comprehensive annotation including coding sequences (CDS), origins of replication (oriC/oriV), origins of transfer (oriT), transposons, replicons, and non-coding RNAs.
 
 ## Features
 
-- When the program is run for the first time the Databases will get downloaded automatically. 
-- The pipeline can take single fasta file or a folder of fasta files as input. 
-- It can also take a genbank file or a folder of genbank files as input 
-
+- **Automatic Database Download**: Databases are downloaded automatically on first run
+- **Flexible Input**: Single files or entire folders of FASTA/GenBank files
+- **Gene Prediction**: Uses Prodigal for accurate gene calling
+- **Mobile Element Detection**: Identifies transposons, insertion sequences, and origins
+- **Visualizations**: Generates circular plasmid maps
+- **Batch Processing**: Process multiple files simultaneously
+- **Enhanced Annotation**: Optional UniProt BLAST for comprehensive protein annotation
 
 ## Installation
 
 ### Dependencies
 
-This script requires the following Python packages:
-- `gdown`
-- `argparse`
-- `pandas`
-- `biopython`
-- `matplotlib`
-- `pycirclize`
+This tool requires the following external programs:
+- **BLAST+** (makeblastdb, blastn, blastx, blastp)
+- **Prodigal** (CDS prediction)
+- **Infernal** (cmscan, cmpress - for ncRNA detection)
 
-The pipelines can be installed using pip: 
+### Install PlasAnn
 
 ```bash
 pip install plasann
 ```
 
-or conda:
+### Installing External Dependencies
+
+**For macOS (Apple Silicon M1/M2):**
 ```bash
-conda install bioconda::PlasAnn
+brew install blast prodigal infernal
 ```
 
-For osx 64 arm (Mac with apple silicon) we suggest using pip install plasann because of compatibility issues with blast and prodigal conda installation. 
-Also for osx 64 arm (Mac with apple silicon) install Blast and Prodigal beforehand using:
+**For Linux (Ubuntu/Debian):**
 ```bash
-brew install blast
-```
-and 
-```bash
-brew install prodigal
+sudo apt install ncbi-blast+ prodigal infernal
 ```
 
-or from  [prodigal](https://github.com/hyattpd/Prodigal) and [Blast](https://www.ncbi.nlm.nih.gov/books/NBK569861/)
+**For other systems:**
+Install from source following the official documentation for [BLAST+](https://www.ncbi.nlm.nih.gov/books/NBK569861/), [Prodigal](https://github.com/hyattpd/Prodigal), and [Infernal](http://eddylab.org/infernal/).
 
-For all other operating systems, use:
+### Verify Installation
+
 ```bash
-conda install bioconda::PlasAnn
+PlasAnn --check-deps
 ```
 
 ## Usage
 
-To run the pipeline, use the following command:
-
+### Basic Commands
 
 ```bash
 PlasAnn -i <input_file_or_directory> -o <output_directory> -t <file_type>
@@ -60,20 +58,85 @@ PlasAnn -i <input_file_or_directory> -o <output_directory> -t <file_type>
 
 ### Parameters
 
-- `-i`, `--input`: Path to the input file or directory containing FASTA or GenBank files.
-- `-o`, `--output`: Path to the output directory where results will be stored.
-- `-t`, `--type`: Type of the input files, either `fasta` or `genbank`.
+- `-i`, `--input`: Path to input file or directory containing FASTA or GenBank files
+- `-o`, `--output`: Path to output directory where results will be stored
+- `-t`, `--type`: Type of input files: `fasta`, `genbank`, or `auto`
 
-Upon choosing GenBank as the file type, you will be prompted to select one of the following options:
-1. Annotate the existing CDS in the genbank file. 
-2. Overwrite existing CDS in GenBank files using Prodigal.
+### Examples
 
-### Outputs
+**Single FASTA file:**
+```bash
+PlasAnn -i plasmid.fasta -o results -t fasta
+```
 
-- **CSV Tables:** Contain the annotation details for each plasmid.
-- **GenBank Files:** Annotated GenBank files with updated feature annotations.
-- **Plasmid Maps:** PNG images representing the annotated plasmid.
+**Folder of FASTA files:**
+```bash
+PlasAnn -i fasta_folder/ -o results -t fasta
+```
 
-The scripts are uploaded in the Scripts folder in this repository
+**GenBank file (retain existing annotations):**
+```bash
+PlasAnn -i plasmid.gb -o results -t genbank --retain
+```
 
-Regarding any issues [Contact me](hislam2@ur.rochester.edu)
+**GenBank file (re-annotate with Prodigal):**
+```bash
+PlasAnn -i plasmid.gb -o results -t genbank --overwrite
+```
+
+**Auto-detect mixed file types:**
+```bash
+PlasAnn -i mixed_folder/ -o results -t auto
+```
+
+**Enhanced annotation with UniProt:**
+```bash
+PlasAnn -i plasmid.fasta -o results -t fasta --uniprot-blast
+```
+
+### GenBank Processing Options
+
+When using GenBank files, you can choose:
+- `--retain`: Use existing CDS annotations in the GenBank file (default)
+- `--overwrite`: Ignore existing annotations and re-predict genes using Prodigal
+
+### Additional Options
+
+- `--uniprot-blast`: Run enhanced UniProt BLAST annotation (slower but more comprehensive)
+- `--min-identity`: Minimum identity percentage for UniProt BLAST hits (default: 50%)
+- `--version`: Show version information
+- `--check-deps`: Check external dependency status
+
+## Output Files
+
+For each input file, PlasAnn generates:
+
+- **CSV Table**: Detailed annotation table with gene information
+- **GenBank File**: Annotated GenBank file with all features
+- **Plasmid Map**: Circular visualization of the annotated plasmid (PNG format)
+- **Enhanced CSV**: Additional file with UniProt annotations (if `--uniprot-blast` used)
+
+## Troubleshooting
+
+**Check dependencies:**
+```bash
+PlasAnn --check-deps
+```
+
+**Common issues:**
+- Ensure BLAST+, Prodigal, and Infernal are properly installed
+- Check that input files are valid FASTA or GenBank format
+- For very short sequences (<100bp), CDS prediction may not work well
+
+## Contact
+
+For questions or issues, contact: [hislam2@ur.rochester.edu](mailto:hislam2@ur.rochester.edu)
+
+## Citation
+
+If you use PlasAnn in your research, please cite:
+```
+PlasAnn: Comprehensive Plasmid Annotation Pipeline
+Habibul Islam
+University of Rochester
+```
