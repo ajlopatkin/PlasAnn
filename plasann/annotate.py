@@ -19,7 +19,7 @@ import threading
 import uuid
 
 # Version information
-__version__ = "1.1.0"
+__version__ = "1.1.3"
 __author__ = "Habibul Islam"
 __email__ = "hislam2@ur.rochester.edu"
 
@@ -232,190 +232,18 @@ def run_on_single_genbank(input_path, output_base, use_overwrite=False, custom_n
 
     return CDS_dataframe, output_folder, output_name, fasta_length, fasta_sequence
 
-'''def process_single_file_complete_pipeline(input_path, output_base, file_type, custom_name=None, 
-                                         overwrite=False, shared_session=False, 
-                                         uniprot_blast=False, uniprot_tsv=None, min_identity=30):
-    """Process a single file through the complete annotation pipeline"""
-    global CDS_dataframe
-    
-    # Reset global CDS_dataframe for each file
-    CDS_dataframe = pd.DataFrame()
-    
-    print(f"🧬 Processing {file_type.upper()} file: {os.path.basename(input_path)}")
-    
-    # Use unique temp directories for each file when in shared session
-    if shared_session:
-        unique_id = str(uuid.uuid4())[:8]
-        blast_temp_dir = f"temp_dir_blast_{unique_id}"
-        temp_dir = f"temp_dir_{unique_id}"
-    else:
-        blast_temp_dir = "temp_dir_blast"
-        temp_dir = "temp_dir"
-    
-    try:
-        # Step 1: Extract CDS
-        if file_type == "fasta":
-            result = run_on_single_fasta(input_path, output_base, custom_name)
-        elif file_type == "genbank":
-            result = run_on_single_genbank(input_path, output_base, overwrite, custom_name)
-        
-        if result[0] is None or len(result[0]) == 0:
-            print(f"❌ Failed to extract CDS from {input_path}")
-            return False
-            
-        CDS_dataframe, output_folder, output_name, length, sequence = result
-        
-        # ✨ NEW: Check for overwrite mode without sequence
-        if file_type == "genbank" and overwrite and sequence is None:
-            print("❌ Add fasta file as input or use --retain option")
-            return False
-        
-        # Step 2: Download and prepare databases (only if not shared session)
-        if not shared_session:
-            print("📥 Preparing databases...")
-            download_database()
-            prepare_blast_database()
-        
-        # Step 3: Run annotation pipeline
-        print("🔍 Running BLAST annotation...")
-        blast_db_prefix = "database_blast/translations_db"
-        orit_fastas = ["Database/orit.fna", "Database/oriT_TNcentral.fasta"]
-        rep_fasta = "Database/plasmidfinder.fasta"
-        transposon_fastas = ["Database/tncentral_cleaned.fa","Database/transposon.fasta"]
-        rfam_cm_path = "Database/Rfam.cm"
-        
-        blast.perform_blast_multiprocessing(CDS_dataframe, blast_db_prefix, blast_temp_dir)
-        blast.annotate_blast_results(blast_temp_dir, "Database/Database.csv")
-        dataframe_after_blast = generate_orf_annotation(CDS_dataframe, blast_temp_dir)
-        
-        # ✨ NEW: Check if sequence is available for mobile element detection
-        if sequence is None:
-            print("⚠️ Sequence content is not present. skipping oriC, oriT, ncRNA, transposon features")
-            
-            # Skip all sequence-dependent analyses
-            dataframe_after_transposon = dataframe_after_blast
-            ncrna_df = pd.DataFrame()  # Empty ncRNA dataframe
-            
-        else:
-            # Full pipeline with sequence-dependent analyses
-            print("🎯 Predicting origins and mobile elements...")
-            dataframe_after_oric = blast.predict_oriC(sequence, dataframe_after_blast, "Database/oric.fna")
-            dataframe_after_orit = blast.predict_oriT(sequence, dataframe_after_oric, orit_fastas)
-            dataframe_after_replicon = blast.predict_replicons(sequence, dataframe_after_orit, rep_fasta)
-            dataframe_after_transposon = blast.predict_transposons(sequence, dataframe_after_replicon, transposon_fastas)
-            
-            print("🧬 Detecting ncRNAs...")
-            ncrna_df = blast.run_infernal_on_sequence(sequence, rfam_cm_path)
-        
-        print("📊 Finalizing annotations...")
-        
-        final_dataframe = combine_features(dataframe_after_transposon, ncrna_df, sequence)
-        final_dataframe_fixed = Fixing_dataframe(final_dataframe, sequence)
-        print_sequence_statistics(sequence, output_name, length)
-        
-        # ✨ Intergenic gene detection logic
-        if sequence is not None:
-            if file_type == "genbank" and not overwrite:
-                # GenBank retain mode: trust original annotations, skip intergenic detection
-                print("📋 Retaining original GenBank annotations - skipping intergenic gene detection")
-            else:
-                # FASTA files OR GenBank overwrite mode: run intergenic detection
-                final_dataframe_fixed = blast.detect_intergenic_genes_simple(final_dataframe_fixed, sequence, blast_temp_dir)
-        # If sequence is None, intergenic detection is skipped anyway
-        
-        # ✨ Optional UniProt BLAST annotation
-        if uniprot_blast and uniprot_tsv:
-            # Check if UniProt TSV exists after database download
-            if os.path.exists(uniprot_tsv):
-                print("🧬 Running optional UniProt BLAST annotation...")
-                print("⚠️ This step may take several minutes...")
-                final_dataframe_fixed = blast.uniprot_blast(final_dataframe_fixed, uniprot_tsv, min_identity)
-                print("✅ UniProt BLAST annotation completed!")
-            else:
-                print(f"❌ UniProt TSV file not found: {uniprot_tsv}")
-                print("   Make sure uniprot_plasmids.tsv is included in your database package")
-                print("   Continuing without UniProt annotation...")
-        elif uniprot_blast and not uniprot_tsv:
-            print("❌ UniProt BLAST requested but no TSV file configured")
-            print("   Continuing without UniProt annotation...")
-        
-        # Step 4: Write outputs
-        output_csv = os.path.join(output_folder, f"{output_name}_annotations.csv")
-        final_dataframe_fixed.to_csv(output_csv, index=False)
-
-        
-        
-        # If UniProt was used, save a separate file for comparison
-        if uniprot_blast and uniprot_tsv and os.path.exists(uniprot_tsv):
-            output_csv_uniprot = os.path.join(output_folder, f"{output_name}_annotations_with_uniprot.csv")
-            final_dataframe_fixed.to_csv(output_csv_uniprot, index=False)
-            print(f"📊 UniProt-enhanced annotations saved: {output_csv_uniprot}")
-        
-        # ✨ Create GenBank file (with sequence handling)
-        output_genbank = os.path.join(output_folder, f"{output_name}_genbank.gbk")
-        description = "Annotated " + output_name
-        write_genbank_from_annotation(final_dataframe_fixed, sequence, output_genbank, output_name, output_name, description)
-        
-        print("🎨 Creating plasmid map...")
-        output_map = os.path.join(output_folder, f"{output_name}_map.png")
-        draw_plasmid_map_from_genbank_file(output_genbank, output_map, output_name)
-        
-        # Clean up temp directories (but NOT shared database_blast in shared session)
-        if shared_session:
-            # Only clean up this file's unique temp dirs
-            shutil.rmtree(blast_temp_dir, ignore_errors=True)
-            shutil.rmtree(temp_dir, ignore_errors=True)
-        else:
-            # Clean up everything (single file mode)
-            shutil.rmtree('database_blast', ignore_errors=True)
-            shutil.rmtree('temp_dir_blast', ignore_errors=True)
-            shutil.rmtree('temp_dir', ignore_errors=True)
-            
-        # Clean up UniProt BLAST database if it was created
-        uniprot_db_dir = "uniprot_blast_db"
-        if os.path.exists(uniprot_db_dir):
-            shutil.rmtree(uniprot_db_dir, ignore_errors=True)
-        
-        print(f"✅ Completed processing {os.path.basename(input_path)}")
-        print(f"   📁 Output folder: {output_folder}")
-        
-        # ✨ Show processing summary
-        if sequence is None:
-            cds_count = len(final_dataframe_fixed[final_dataframe_fixed.get('feature type', '') == 'CDS'])
-            print(f"   📊 CDS-only mode: {cds_count} genes annotated")
-            print(f"   ⚠️ Limited analysis due to missing genomic sequence")
-        
-        return True
-        
-    except Exception as e:
-        print(f"❌ Error processing {input_path}: {e}")
-        # Clean up on error
-        if shared_session:
-            shutil.rmtree(blast_temp_dir, ignore_errors=True)
-            shutil.rmtree(temp_dir, ignore_errors=True)
-        else:
-            shutil.rmtree('database_blast', ignore_errors=True)
-            shutil.rmtree('temp_dir_blast', ignore_errors=True)
-            shutil.rmtree('temp_dir', ignore_errors=True)
-        
-        # Clean up UniProt BLAST database if it was created
-        uniprot_db_dir = "uniprot_blast_db"
-        if os.path.exists(uniprot_db_dir):
-            shutil.rmtree(uniprot_db_dir, ignore_errors=True)
-        return False'''
-
-
-
 def process_single_file_complete_pipeline(input_path, output_base, file_type, custom_name=None, 
                                          overwrite=False, shared_session=False, 
-                                         uniprot_blast=False, uniprot_tsv=None, min_identity=30):
+                                         uniprot_blast=False, uniprot_tsv=None, min_identity=50):
     """Process a single file through the complete annotation pipeline - ENHANCED VERSION"""
     global CDS_dataframe
     
     # Reset global CDS_dataframe for each file
     CDS_dataframe = pd.DataFrame()
     
-    print(f"🧬 Processing {file_type.upper()} file: {os.path.basename(input_path)}")
+    print(f"\n{'='*60}")
+    print(f"🧬 PROCESSING: {os.path.basename(input_path)}")
+    print(f"{'='*60}")
     
     # ✨ NEW: Pre-flight checks
     try:
@@ -533,7 +361,7 @@ def process_single_file_complete_pipeline(input_path, output_base, file_type, cu
             
         else:
             # Full pipeline with sequence-dependent analyses
-            print("🎯 Predicting origins and mobile elements...")
+            print(f"\n📊 STEP 4: Mobile Element, Origin of replication and transfer Detection")
             try:
                 orit_fastas = ["Database/orit.fna", "Database/oriT_TNcentral.fasta"]
                 rep_fasta = "Database/plasmidfinder.fasta"
@@ -664,7 +492,7 @@ def process_single_file_complete_pipeline(input_path, output_base, file_type, cu
         return False
 
 def process_folder(input_folder, output_base, file_type, custom_name=None, overwrite=False,
-                  uniprot_blast=False, uniprot_tsv=None, min_identity=30):
+                  uniprot_blast=False, uniprot_tsv=None, min_identity=50):
     """Process all files in a folder of specified type"""
     
     if file_type == "fasta":
@@ -682,6 +510,11 @@ def process_folder(input_folder, output_base, file_type, custom_name=None, overw
     
     print(f"\n🎯 Processing {total_files} {file_type.upper()} files from folder...")
     
+    # Show custom name warning for folders
+    if custom_name:
+        print(f"⚠️ Ignoring custom name '{custom_name}' for folder processing")
+        print(f"   Each file will get its own subfolder based on filename")
+    
     # Show UniProt status
     if uniprot_blast:
         print(f"🧬 UniProt BLAST: Enabled (TSV: {os.path.basename(uniprot_tsv) if uniprot_tsv else 'default'})")
@@ -698,9 +531,9 @@ def process_folder(input_folder, output_base, file_type, custom_name=None, overw
         print(f"📁 File {i}/{total_files}: {os.path.basename(file_path)}")
         print(f"{'='*60}")
         
-        # shared_session=True means don't rebuild databases, use unique temp dirs
+        # 🔧 FIX: Always pass None for custom_name in folder processing
         success = process_single_file_complete_pipeline(
-            file_path, output_base, file_type, custom_name, overwrite, 
+            file_path, output_base, file_type, None, overwrite, 
             shared_session=True, uniprot_blast=uniprot_blast, 
             uniprot_tsv=uniprot_tsv, min_identity=min_identity
         )
@@ -728,7 +561,7 @@ def process_folder(input_folder, output_base, file_type, custom_name=None, overw
 
 
 def process_auto_folder(input_folder, output_base, custom_name=None, overwrite=False,
-                       uniprot_blast=False, uniprot_tsv=None, min_identity=30):
+                       uniprot_blast=False, uniprot_tsv=None, min_identity=50):
     """Process folder containing mixed FASTA and GenBank files"""
     
     fasta_extensions = ['.fasta', '.fa', '.fsa', '.fna']
@@ -747,6 +580,11 @@ def process_auto_folder(input_folder, output_base, custom_name=None, overwrite=F
     successful_files = 0
     
     print(f"\n🎯 Starting auto-detection pipeline for {total_files} files...")
+    
+    # Show custom name warning for folders
+    if custom_name:
+        print(f"⚠️ Ignoring custom name '{custom_name}' for folder processing")
+        print(f"   Each file will get its own subfolder based on filename")
     
     # Show GenBank processing method if there are GenBank files
     if gb_files:
@@ -769,8 +607,9 @@ def process_auto_folder(input_folder, output_base, custom_name=None, overwrite=F
         print(f"📁 FASTA file {i}/{len(fasta_files)}: {os.path.basename(fasta_file)}")
         print(f"{'='*60}")
         
+        # 🔧 FIX: Always pass None for custom_name in folder processing
         success = process_single_file_complete_pipeline(
-            fasta_file, output_base, "fasta", custom_name, False, 
+            fasta_file, output_base, "fasta", None, False, 
             shared_session=True, uniprot_blast=uniprot_blast, 
             uniprot_tsv=uniprot_tsv, min_identity=min_identity
         )
@@ -783,8 +622,9 @@ def process_auto_folder(input_folder, output_base, custom_name=None, overwrite=F
         print(f"📁 GenBank file {i}/{len(gb_files)}: {os.path.basename(gb_file)}")
         print(f"{'='*60}")
         
+        # 🔧 FIX: Always pass None for custom_name in folder processing
         success = process_single_file_complete_pipeline(
-            gb_file, output_base, "genbank", custom_name, overwrite, 
+            gb_file, output_base, "genbank", None, overwrite, 
             shared_session=True, uniprot_blast=uniprot_blast, 
             uniprot_tsv=uniprot_tsv, min_identity=min_identity
         )
@@ -904,7 +744,7 @@ PlasAnn v{__version__} - Comprehensive Plasmid Annotation Pipeline
   • Beautiful circular plasmid visualizations
   • Batch processing with auto-detection of mixed file types
 
-📖 For detailed documentation, visit: https://github.com/your-repo/plasann
+📖 For detailed documentation, visit: https://github.com/ajlopakin/PlasAnn
         """,
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
@@ -950,7 +790,7 @@ PlasAnn v{__version__} - Comprehensive Plasmid Annotation Pipeline
                        help="Input type: fasta, genbank, or auto (auto-detect from folder)")
     
     # Optional arguments
-    parser.add_argument("-n", "--name", help="Custom name for output subfolder")
+    parser.add_argument("-n", "--name", help="Custom name for output subfolder (single files only - ignored for folders)")
     parser.add_argument("--overwrite", action="store_true", 
                        help="Use Prodigal on GenBank sequence (ignore existing annotations)")
     parser.add_argument("--retain", action="store_true", 
@@ -961,8 +801,8 @@ PlasAnn v{__version__} - Comprehensive Plasmid Annotation Pipeline
                        help="Run optional UniProt BLAST annotation (slow but comprehensive)")
     parser.add_argument("--uniprot-tsv", type=str, 
                        help="Path to UniProt TSV file (default: Database/uniprot_plasmids.tsv)")
-    parser.add_argument("--min-identity", type=float, default=30,
-                       help="Minimum identity percentage for UniProt BLAST hits (default: 30%%)")
+    parser.add_argument("--min-identity", type=float, default=50,
+                       help="Minimum identity percentage for UniProt BLAST hits (default: 50%%)")
 
     args = parser.parse_args()
 
@@ -1004,6 +844,13 @@ PlasAnn v{__version__} - Comprehensive Plasmid Annotation Pipeline
     print(f"   📄 Input: {args.input}")
     print(f"   📁 Output: {args.output}")
     print(f"   🎯 Type: {args.type}")
+    
+    # Show custom name handling
+    if args.name and (args.type == "auto" or os.path.isdir(args.input)):
+        print(f"   📝 Custom name: '{args.name}' (will be ignored for folder processing)")
+    elif args.name:
+        print(f"   📝 Custom name: {args.name}")
+    
     if args.uniprot_blast:
         print(f"   🧬 UniProt BLAST: Enabled")
         print(f"   📊 UniProt TSV: {args.uniprot_tsv}")

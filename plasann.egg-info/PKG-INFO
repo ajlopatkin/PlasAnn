@@ -1,18 +1,19 @@
 Metadata-Version: 2.4
 Name: plasann
-Version: 1.1.0
+Version: 1.1.2
 Summary: PlasAnn - Plasmid sequence annotation tool with enhanced dependency management
-Author-email: Your Name <hislam2@ur.rochester.edu>
+Author-email: Habibul Islam <hislam2@ur.rochester.edu>
 License: MIT
-Project-URL: Homepage, https://github.com/yourusername/plasann
-Project-URL: Repository, https://github.com/yourusername/plasann
-Project-URL: Bug Tracker, https://github.com/yourusername/plasann/issues
+Project-URL: Homepage, https://github.com/ajlopatkin/PlasAnn
+Project-URL: Repository, https://github.com/ajlopatkin/PlasAnn
+Project-URL: Bug Tracker, https://github.com/ajlopatkin/PlasAnn/issues
 Keywords: plasmid,annotation,bioinformatics,blast,prodigal
 Classifier: Development Status :: 4 - Beta
 Classifier: Intended Audience :: Science/Research
 Classifier: License :: OSI Approved :: MIT License
-Classifier: Operating System :: POSIX
+Classifier: Operating System :: Microsoft :: Windows
 Classifier: Operating System :: MacOS
+Classifier: Operating System :: POSIX :: Linux
 Classifier: Programming Language :: Python :: 3
 Classifier: Topic :: Scientific/Engineering :: Bio-Informatics
 Requires-Python: >=3.8

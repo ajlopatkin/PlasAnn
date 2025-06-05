@@ -30,15 +30,13 @@ def draw_plasmid_map_from_genbank_file(genbank_file_path, map_file_path, plasmid
             return False
             
         circos.text(f"{plasmid}", size=15, r=0)
-        circos.rect(r_lim=(70, 75), fc="grey", ec="none", alpha=0.5)
+        circos.rect(r_lim=(64, 68), fc="grey", ec="none", alpha=0.5)
         sector = circos.sectors[0]
 
-        # Define category colors
-        category_colors = {
+        # Define CDS category colors
+        cds_category_colors = {
             'Conjugation': '#4AA532',
             'Toxin-Antitoxin System': '#2067BF',
-            'Origin of Replication': "#FF0066",
-            'Origin of Transfer': 'skyblue',
             'Plasmid Maintenance, Replication and Regulation': '#ED7E7E',
             'Metabolism': '#DBA602',
             'Stress Response': '#7859D3',
@@ -48,7 +46,14 @@ def draw_plasmid_map_from_genbank_file(genbank_file_path, map_file_path, plasmid
             'Metal and Biocide Resistance': 'red',
             'Open reading frame': 'blue',
             'Virulence and Defense Mechanism':'#85b90b',
-            'Non coding RNA/Regulatory elements': 'purple',
+            'Non coding RNA/Regulatory elements': 'purple'
+        }
+
+        # Define additional features colors (separate from CDS)
+        additional_feature_colors = {
+            'Origin of Replication': "#FF0066",
+            'Origin of Transfer': 'skyblue',
+            'Mobile Element': 'yellow',
             'Replicon': 'orange'
         }
 
@@ -63,11 +68,11 @@ def draw_plasmid_map_from_genbank_file(genbank_file_path, map_file_path, plasmid
             except (IndexError, AttributeError):
                 return default
 
-        # Function to add features to a track
-        def add_features_to_track(track, features, default_color='blue', lw=0.5):
+        # Function to add CDS features to a track
+        def add_cds_features_to_track(track, features, default_color='blue', lw=0.5):
             for feat in features:
                 category = safe_get_qualifier(feat, 'category')
-                color = category_colors.get(category, default_color)  # Use a default color if category not in mapping
+                color = cds_category_colors.get(category, default_color)
                 track.genomic_features(feat, plotstyle="arrow", fc=color, lw=lw)
 
         # Safe feature extraction function
@@ -88,25 +93,25 @@ def draw_plasmid_map_from_genbank_file(genbank_file_path, map_file_path, plasmid
                 print(f"⚠️ Warning: Could not extract {feature_type} features: {e}")
                 return []
 
-        # Extract features safely - keep origins separate from CDS
+        # Extract CDS features safely
         f_cds_feats = safe_extract_features(gbk, "CDS", target_strand=1)
-        f_all_feats = f_cds_feats  # Only CDS for forward track
-
         r_cds_feats = safe_extract_features(gbk, "CDS", target_strand=-1)
-        r_all_feats = r_cds_feats  # Only CDS for reverse track
+
+        # Track which additional features are present for legend
+        additional_features_present = set()
 
         # Only create tracks if we have features
-        if f_all_feats:
+        if f_cds_feats:
             # Plot forward strand CDS with color based on category
-            f_cds_track = sector.add_track((70, 75))
-            add_features_to_track(f_cds_track, f_all_feats)
+            f_cds_track = sector.add_track((64, 68))
+            add_cds_features_to_track(f_cds_track, f_cds_feats)
         else:
             f_cds_track = None
 
-        if r_all_feats:
+        if r_cds_feats:
             # Repeat for reverse strand CDS
-            r_cds_track = sector.add_track((65, 70))
-            add_features_to_track(r_cds_track, r_all_feats)
+            r_cds_track = sector.add_track((60, 64))
+            add_cds_features_to_track(r_cds_track, r_cds_feats)
         else:
             r_cds_track = None
 
@@ -130,8 +135,10 @@ def draw_plasmid_map_from_genbank_file(genbank_file_path, map_file_path, plasmid
         # Mobile element track
         mge_feats = safe_extract_features(gbk, "MGE", target_strand=1)
         if mge_feats:
-            t_mobile_track = sector.add_track((100, 105))
-            t_mobile_track.genomic_features(mge_feats, plotstyle="arrow", fc="yellow", lw=2)
+            additional_features_present.add('Mobile Element')
+            t_mobile_track = sector.add_track((101, 105))
+            t_mobile_track.genomic_features(mge_feats, plotstyle="arrow", 
+                                          fc=additional_feature_colors['Mobile Element'], lw=1)
 
             tlabels, tlabel_pos_list = [], []
             all_mge_feats = safe_extract_features(gbk, "MGE")
@@ -150,35 +157,70 @@ def draw_plasmid_map_from_genbank_file(genbank_file_path, map_file_path, plasmid
             if tlabels:
                 t_mobile_track.xticks(tlabel_pos_list, tlabels, label_size=10, label_margin=1, label_orientation="vertical")
 
-        # Origin track - with category-based colors like CDS
+        # Origin track - with specific colors for additional features
         oriv_feats = safe_extract_features(gbk, "ORIV")
         orit_feats = safe_extract_features(gbk, "ORIT")
         ori_feats = oriv_feats + orit_feats
         
         if ori_feats:
-            ori_track = sector.add_track((95, 100))
+            ori_track = sector.add_track((84, 88))
             
-            # Color each feature based on its category (like CDS)
+            # Color each feature based on its type - use circles for origins
             for feat in ori_feats:
-                category = safe_get_qualifier(feat, 'category')
-                color = category_colors.get(category, 'red')
-                ori_track.genomic_features(feat, plotstyle="arrow", fc=color, lw=2)
-
-            ori_labels, ori_label_pos_list = [], []
+                if feat.type == "ORIV":
+                    additional_features_present.add('Origin of Replication')
+                    color = additional_feature_colors['Origin of Replication']
+                elif feat.type == "ORIT":
+                    additional_features_present.add('Origin of Transfer')
+                    color = additional_feature_colors['Origin of Transfer']
+                else:
+                    color = 'red'  # fallback
+                
+                # Calculate center position for circle
+                start = int(str(feat.location.start))
+                end = int(str(feat.location.end))
+                center_pos = (start + end) / 2
+                
+                # Plot as circle using scatter
+                ori_track.scatter([center_pos], [97.5], s=100, c=color, edgecolors='black', linewidths=0.5)
+        '''# Origin track - with specific colors for additional features
+        oriv_feats = safe_extract_features(gbk, "ORIV")
+        orit_feats = safe_extract_features(gbk, "ORIT")
+        ori_feats = oriv_feats + orit_feats
+        
+        if ori_feats:
+            ori_track = sector.add_track((90, 95))
+            
+            # Plot each feature as arrow based on its type
             for feat in ori_feats:
-                try:
-                    start = int(str(feat.location.start))
-                    end = int(str(feat.location.end))
-                    ori_label_pos = (start + end) / 2
-                    gene_name = safe_get_qualifier(feat, "gene")
-                    if gene_name:
-                        ori_labels.append(gene_name)
-                        ori_label_pos_list.append(ori_label_pos)
-                except (ValueError, AttributeError):
-                    continue
+                if feat.type == "ORIV":
+                    additional_features_present.add('Origin of Replication')
+                    color = additional_feature_colors['Origin of Replication']
+                elif feat.type == "ORIT":
+                    additional_features_present.add('Origin of Transfer')
+                    color = additional_feature_colors['Origin of Transfer']
+                else:
+                    color = 'red'  # fallback
+                
+                # Plot as arrow using genomic_features
+                ori_track.genomic_features(feat, plotstyle="arrow", fc=color, lw=1)'''
 
-            if ori_labels:
-                ori_track.xticks(ori_label_pos_list, ori_labels, label_size=10, label_margin=1, label_orientation="vertical")
+            # Origin labels removed per user request
+            # ori_labels, ori_label_pos_list = [], []
+            # for feat in ori_feats:
+            #     try:
+            #         start = int(str(feat.location.start))
+            #         end = int(str(feat.location.end))
+            #         ori_label_pos = (start + end) / 2
+            #         gene_name = safe_get_qualifier(feat, "gene")
+            #         if gene_name:
+            #             ori_labels.append(gene_name)
+            #             ori_label_pos_list.append(ori_label_pos)
+            #     except (ValueError, AttributeError):
+            #         continue
+
+            # if ori_labels:
+            #     ori_track.xticks(ori_label_pos_list, ori_labels, label_size=10, label_margin=1, label_orientation="vertical")
 
         # Only add CDS labels if we have tracks and labels
         if labels and label_pos_list:
@@ -193,7 +235,7 @@ def draw_plasmid_map_from_genbank_file(genbank_file_path, map_file_path, plasmid
             if f_cds_track and labels_group1:
                 for i, (label, pos) in enumerate(zip(labels_group1, label_pos_group1)):
                     margin = 0.5 if i % 2 == 0 else 1
-                    tick_len = 2 if i % 2 == 0 else 5
+                    tick_len = 1 if i % 2 == 0 else 8
                     f_cds_track.xticks(
                         [pos], [label],
                         tick_length=tick_len,
@@ -230,16 +272,16 @@ def draw_plasmid_map_from_genbank_file(genbank_file_path, map_file_path, plasmid
 
         minor_ticks_interval = major_ticks_interval / 5
 
-        outer_track = sector.add_track((65, 75))
+        outer_track = sector.add_track((60, 64))
         outer_track.axis(fc="lightgrey")
 
-        tick_track = sector.add_track((30, 28))
+        tick_track = sector.add_track((24, 25))
         tick_track.axis(fc="black")
 
         def skip_zero_label(value):
             if value == 0:
                 return ""
-            return f"{value / 1000:.1f} kb"
+            return f"{value / 1000:.0f} kb"
 
         tick_track.xticks_by_interval(
             major_ticks_interval,
@@ -256,8 +298,10 @@ def draw_plasmid_map_from_genbank_file(genbank_file_path, map_file_path, plasmid
         # Add inner track for replicon feature
         rep_feats = safe_extract_features(gbk, "Replicon", target_strand=1)
         if rep_feats:  # Check if replicon features are present before proceeding
-            rep_track = sector.add_track((97, 102))
-            rep_track.genomic_features(rep_feats, plotstyle="box", fc="yellow", lw=2)
+            additional_features_present.add('Replicon')
+            rep_track = sector.add_track((97, 100))
+            rep_track.genomic_features(rep_feats, plotstyle="box", 
+                                     fc=additional_feature_colors['Replicon'], lw=1)
             
             rlabels, rlabel_pos_list = [], []
             for feat in rep_feats:
@@ -273,26 +317,46 @@ def draw_plasmid_map_from_genbank_file(genbank_file_path, map_file_path, plasmid
                     continue
 
             if rlabels:
-                rep_track.xticks(rlabel_pos_list, rlabels, tick_length=0, label_size=8.5, label_margin=-10, label_orientation="horizontal")
+                rep_track.xticks(rlabel_pos_list, rlabels, tick_length=0, label_size=8.5, label_margin=-8, label_orientation="horizontal")
 
         fig = circos.plotfig()
 
-        # Legend
-        legend_lines = [
+        # Create two separate legends
+        
+        # Legend 1: CDS Feature Categories
+        cds_legend_lines = [
             Line2D([], [], color=color, lw=4, label=label)
-            for label, color in category_colors.items()
+            for label, color in cds_category_colors.items()
         ]
-        fig.legend(
-            handles=legend_lines,
-            bbox_to_anchor=(1.05, 0.5),
-            loc="center left",
+        
+        cds_legend = fig.legend(
+            handles=cds_legend_lines,
+            bbox_to_anchor=(1.02, 0.75),
+            loc="upper left",
             borderaxespad=0,
-            fontsize=14,
-            title="Feature Categories",
-            title_fontsize=16
+            fontsize=12,
+            title="CDS Categories",
+            title_fontsize=14
         )
 
-        fig.savefig(map_file_path, dpi=300)
+        # Legend 2: Additional Features (only show features that are present)
+        if additional_features_present:
+            additional_legend_lines = [
+                Line2D([], [], color=additional_feature_colors[feature], lw=4, label=feature)
+                for feature in additional_features_present
+            ]
+            
+            fig.legend(
+                handles=additional_legend_lines,
+                bbox_to_anchor=(1.02, 0.25),
+                loc="upper left",
+                borderaxespad=0,
+                fontsize=12,
+                title="Additional Features",
+                title_fontsize=14
+            )
+
+        fig.savefig(map_file_path, dpi=300, bbox_inches='tight')
         print(f"✅ Plasmid map saved: {map_file_path}")
         
         # Reset warnings

@@ -10,143 +10,35 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 import tempfile
 from Bio.Seq import Seq
 import hashlib
-import subprocess
-import multiprocessing
-from pathlib import Path
 
-
-def validate_sequence_for_blast(seq, min_length=90):
-    """Validate sequence before BLAST"""
-    if pd.isna(seq) or not seq.strip():
-        return False, "Empty sequence"
-    
-    seq_clean = seq.strip().upper()
-    
-    # Check minimum length
-    if len(seq_clean) < min_length:
-        return False, f"Too short ({len(seq_clean)}bp < {min_length}bp)"
-    
-    # Check for valid nucleotides
-    valid_bases = set('ACGTRYSWKMBDHVN')
-    invalid_bases = set(seq_clean) - valid_bases
-    if invalid_bases:
-        return False, f"Invalid nucleotides: {invalid_bases}"
-    
-    # Check for too many N's
-    n_content = seq_clean.count('N') / len(seq_clean)
-    if n_content > 0.8:
-        return False, f"Too many ambiguous bases ({n_content:.1%})"
-    
-    return True, "Valid"
 
 def run_blast_for_row(idx, seq, tmp_dir, blast_db_prefix, blast_header):
-    """Enhanced BLAST execution with better error handling"""
-    
-    # ✨ NEW: Validate sequence first
-    is_valid, reason = validate_sequence_for_blast(seq)
-    if not is_valid:
-        print(f"⚠️ Skipping ORF {idx}: {reason}")
+    if pd.isna(seq) or not seq.strip():
         return
 
     tmp_dir = Path(tmp_dir)
     query_file = tmp_dir / f"query_{idx}.fasta"
     result_file = tmp_dir / f"blast_result_{idx}.csv"
 
-    try:
-        # Write query FASTA
-        with open(query_file, "w") as f:
-            f.write(f">query_{idx}\n{seq.strip()}\n")
+    # Write query FASTA
+    with open(query_file, "w") as f:
+        f.write(f">query_{idx}\n{seq.strip()}\n")
 
-        # ✨ ENHANCED: Use subprocess with proper error handling
-        blast_cmd = [
-            "blastx", 
-            "-query", str(query_file),
-            "-db", blast_db_prefix,
-            "-out", str(result_file),
-            "-outfmt", "10",
-            "-max_target_seqs", "10", 
-            "-evalue", "1e-5",
-            "-num_threads", "1"  # Single thread per process
-        ]
-        
-        # Run BLAST with timeout
-        result = subprocess.run(
-            blast_cmd,
-            capture_output=True,
-            text=True,
-            timeout=300,  # 5 minute timeout per sequence
-            check=True
-        )
-        
-        # ✨ NEW: Check if BLAST produced output
-        if result_file.exists():
-            with open(result_file, "r") as f:
-                content = f.read().strip()
-            
-            # Distinguish between no hits vs failed BLAST
-            if content:  # Has BLAST hits
-                with open(result_file, "w") as f:
-                    f.write(blast_header + "\n" + content)
-            else:  # No hits found (but BLAST ran successfully)
-                with open(result_file, "w") as f:
-                    f.write(blast_header + "\n")  # Header only
-        else:
-            # BLAST failed to create output file
-            print(f"⚠️ BLAST failed to create output for ORF {idx}")
-            # Create empty file with header
-            with open(result_file, "w") as f:
-                f.write(blast_header + "\n")
-                
-    except subprocess.TimeoutExpired:
-        print(f"⏰ BLAST timeout for ORF {idx} (>5 minutes)")
-        # Create empty result file
-        with open(result_file, "w") as f:
-            f.write(blast_header + "\n")
-            
-    except subprocess.CalledProcessError as e:
-        print(f"❌ BLAST failed for ORF {idx}: {e.stderr}")
-        # Create empty result file  
-        with open(result_file, "w") as f:
-            f.write(blast_header + "\n")
-            
-    except Exception as e:
-        print(f"❌ Unexpected error for ORF {idx}: {e}")
-        # Create empty result file
-        with open(result_file, "w") as f:
-            f.write(blast_header + "\n")
-    
-    finally:
-        # Clean up query file
-        if query_file.exists():
-            query_file.unlink()
+    # Run BLAST
+    blast_cmd = (
+        f"blastx -query {query_file} -db {blast_db_prefix} "
+        f"-out {result_file} -outfmt '10' -max_target_seqs 10 -evalue 1e-5"
+    )
+    os.system(blast_cmd)
+
+    # Add header
+    if result_file.exists():
+        with open(result_file, "r+") as f:
+            content = f.read()
+            f.seek(0)
+            f.write(blast_header + "\n" + content)
 
 def perform_blast_multiprocessing(CDS_dataframe, blast_db_prefix, tmp_dir, max_workers=8):
-    """Enhanced multiprocessing BLAST with validation"""
-    
-    # ✨ NEW: Pre-flight checks
-    if not os.path.exists(f"{blast_db_prefix}.pin"):
-        raise Exception(f"BLAST database not found: {blast_db_prefix}")
-    
-    if len(CDS_dataframe) == 0:
-        print("⚠️ No sequences to BLAST")
-        return
-    
-    # ✨ NEW: Filter valid sequences
-    valid_sequences = []
-    for idx, row in CDS_dataframe.iterrows():
-        seq = row.get("Sequence", "")
-        is_valid, reason = validate_sequence_for_blast(seq)
-        if is_valid:
-            valid_sequences.append((idx, seq))
-        else:
-            print(f"⚠️ Skipping ORF {idx}: {reason}")
-    
-    if not valid_sequences:
-        print("❌ No valid sequences for BLAST")
-        return
-    
-    print(f"🔍 Running BLAST on {len(valid_sequences)}/{len(CDS_dataframe)} sequences")
-    
     tmp_dir = Path(tmp_dir)
     tmp_dir.mkdir(parents=True, exist_ok=True)
 
@@ -156,121 +48,57 @@ def perform_blast_multiprocessing(CDS_dataframe, blast_db_prefix, tmp_dir, max_w
         "s_start", "s_end", "evalue", "bit_score"
     ])
 
-    # ✨ ENHANCED: Adaptive worker count based on system and sequence count
-    import multiprocessing
-    system_cores = multiprocessing.cpu_count()
-    adaptive_workers = min(max_workers, system_cores, len(valid_sequences))
-    
-    print(f"   Using {adaptive_workers} parallel BLAST processes")
-
     tasks = []
-    completed = 0
-    failed = 0
-    
-    with ProcessPoolExecutor(max_workers=adaptive_workers) as executor:
-        # Submit all tasks
-        for idx, seq in valid_sequences:
+    with ProcessPoolExecutor(max_workers=max_workers) as executor:
+        for idx, row in CDS_dataframe.iterrows():
+            seq = row.get("Sequence", "")
             tasks.append(executor.submit(
                 run_blast_for_row, idx, seq, str(tmp_dir), blast_db_prefix, blast_header
             ))
 
-        # Process completed tasks with progress tracking
-        for i, future in enumerate(as_completed(tasks)):
+        for f in as_completed(tasks):
             try:
-                future.result()
-                completed += 1
+                f.result()
             except Exception as e:
-                print(f"❌ Task {i} failed: {e}")
-                failed += 1
-            
-            # Progress indicator
-            total_done = completed + failed
-            if total_done % 10 == 0 or total_done == len(tasks):
-                print(f"   Progress: {total_done}/{len(tasks)} sequences processed")
+                print(f"❌ Error in task: {e}")
 
-    print(f"✅ BLAST completed: {completed} successful, {failed} failed")
-    
-    # ✨ NEW: Validate output files
-    expected_files = len(valid_sequences)
-    actual_files = len(list(tmp_dir.glob("blast_result_*.csv")))
-    
-    if actual_files < expected_files:
-        print(f"⚠️ Warning: Expected {expected_files} result files, found {actual_files}")
+    print("✅ Multiprocessing BLASTX completed.")
+
+
 
 def annotate_blast_results(blast_results_dir, database_csv_path):
-    """Enhanced BLAST result annotation with better error handling"""
+    """
+    Adds metadata to each BLAST result file using Database.csv.
+    
+    Parameters:
+    - blast_results_dir: str or Path to directory containing blast_result_*.csv files
+    - database_csv_path: path to Database.csv containing metadata columns
+    
+    Each BLAST result file is updated in place with new columns from the database.
+    """
     blast_results_dir = Path(blast_results_dir)
-    
-    # ✨ NEW: Validate database file
-    if not os.path.exists(database_csv_path):
-        raise Exception(f"Database CSV not found: {database_csv_path}")
-    
-    try:
-        db = pd.read_csv(database_csv_path)
-        if len(db) == 0:
-            raise Exception("Database CSV is empty")
-    except Exception as e:
-        raise Exception(f"Could not read database CSV: {e}")
+    db = pd.read_csv(database_csv_path)
 
     columns_to_add = ["Gene Name", "Category", "Product", "COG_DESCRIPTION", "KEGG_Function"]
-    
-    # ✨ NEW: Check if required columns exist
-    missing_cols = [col for col in columns_to_add if col not in db.columns]
-    if missing_cols:
-        print(f"⚠️ Missing database columns: {missing_cols}")
-        # Add empty columns for missing ones
-        for col in missing_cols:
-            db[col] = ""
 
     blast_files = list(blast_results_dir.glob("blast_result_*.csv"))
     if not blast_files:
         print("⚠️ No BLAST result files found in:", blast_results_dir)
         return
 
-    processed = 0
-    failed = 0
-
     for blast_file in blast_files:
         try:
-            # ✨ NEW: Check if file has content beyond header
-            with open(blast_file, 'r') as f:
-                lines = f.readlines()
-            
-            if len(lines) <= 1:  # Only header or empty
-                continue  # Skip annotation for files with no hits
-            
             blast_df = pd.read_csv(blast_file)
-            
-            if blast_df.empty:
-                continue
-            
-            # ✨ NEW: Validate subject_id column
-            if 'subject_id' not in blast_df.columns:
-                print(f"⚠️ No subject_id column in {blast_file.name}")
-                continue
-            
-            # Convert to int and handle invalid values
-            blast_df = blast_df.dropna(subset=['subject_id'])
-            blast_df['subject_id'] = blast_df['subject_id'].astype(int)
-            
-            # ✨ NEW: Check for valid subject IDs
-            valid_ids = blast_df['subject_id'].isin(db.index)
-            if not valid_ids.any():
-                print(f"⚠️ No valid subject IDs in {blast_file.name}")
-                continue
-            
-            blast_df = blast_df[valid_ids]
+            blast_df["subject_id"] = blast_df["subject_id"].astype(int)
 
             metadata = db.loc[blast_df["subject_id"], columns_to_add].reset_index(drop=True)
             annotated = pd.concat([blast_df, metadata], axis=1)
             annotated.to_csv(blast_file, index=False)
-            processed += 1
 
         except Exception as e:
             print(f"❌ Failed to annotate {blast_file.name}: {e}")
-            failed += 1
 
-    print(f"✅ Annotated {processed} BLAST result files ({failed} failed)")
+    print(f"✅ Annotated {len(blast_files)} BLAST result files with metadata.")
 
 '''def predict_oriC(sequence,annotation_df,doric_fasta,min_length=200,location_buffer=50,window_size=500,sequence_id="plasmid_query"):
 
@@ -369,8 +197,7 @@ def annotate_blast_results(blast_results_dir, database_csv_path):
 
     print("[INFO] oriC prediction complete.")
     return annotation_df'''
-
-def predict_oriC(sequence, annotation_df, doric_fasta, min_length=100, location_buffer=50, 
+'''def predict_oriC(sequence, annotation_df, doric_fasta, min_length=100, location_buffer=50, 
                  window_size=500, sequence_id="plasmid_query", max_search_region=3000):
     """
     Predict oriC using nucleotide skew analysis + BLAST against DoriC database
@@ -576,11 +403,239 @@ def predict_oriC(sequence, annotation_df, doric_fasta, min_length=100, location_
     num_predictions = len(oriC_predictions) if oriC_predictions else 1
     print(f"✅ oriC prediction complete. Added {num_predictions} origin(s) of replication")
     
-    return annotation_df
+    return annotation_df'''
+
+
+def predict_oriC(sequence, annotation_df, doric_fasta, min_igs_length=50, 
+                 sequence_id="plasmid_query", evalue_threshold=1e-5):
+    """
+    Predict oriC using IGS-based BLAST approach + rep gene proximity
+    Based on the user's improved algorithm that correctly identifies oriC
+    
+    Args:
+        sequence: Input DNA sequence string
+        annotation_df: Existing annotations dataframe (from generate_orf_annotation)
+        doric_fasta: Path to DoriC database FASTA
+        min_igs_length: Minimum IGS length to consider (default: 50bp)
+        sequence_id: Sequence identifier
+        evalue_threshold: E-value threshold for BLAST
+    
+    Returns:
+        Updated annotation dataframe with oriC predictions
+    """
+    import pandas as pd
+    import tempfile
+    import os
+    
+    print("🔍 Predicting oriC using IGS analysis + rep gene proximity...")
+    
+    try:
+        # Step 1: Extract intergenic spacer regions (IGS)
+        print("   📊 Extracting intergenic spacer regions...")
+        
+        # At this point, annotation_df should have Start, End, Strand columns from CDS annotation
+        if annotation_df.empty:
+            print("   ⚠️ No annotations found for IGS extraction")
+            return annotation_df
+            
+        # Sort by start position and get CDS coordinates
+        annotation_df_sorted = annotation_df.sort_values('Start').reset_index(drop=True)
+        cds_list = annotation_df_sorted[['Start', 'End']].dropna().astype(int).values.tolist()
+        
+        if len(cds_list) < 2:
+            print("   ⚠️ Need at least 2 CDS features for IGS extraction")
+            return annotation_df
+        
+        # Extract IGS regions between consecutive CDS
+        igs_list = []
+        for i in range(len(cds_list) - 1):
+            end_current = cds_list[i][1]
+            start_next = cds_list[i + 1][0]
+            
+            if start_next - end_current >= min_igs_length:
+                igs_seq = sequence[end_current:start_next]
+                igs_list.append({
+                    'IGS_ID': f'IGS_{i+1}',
+                    'Start': end_current + 1,  # Convert to 1-based
+                    'End': start_next,
+                    'Length': start_next - end_current,
+                    'Sequence': igs_seq
+                })
+        
+        # Add wraparound IGS (circular plasmid)
+        last_end = cds_list[-1][1]
+        first_start = cds_list[0][0]
+        wraparound_length = len(sequence) - last_end + first_start
+        
+        if wraparound_length >= min_igs_length:
+            wraparound_seq = sequence[last_end:] + sequence[:first_start]
+            igs_list.append({
+                'IGS_ID': 'IGS_wraparound',
+                'Start': last_end + 1,
+                'End': first_start,
+                'Length': wraparound_length,
+                'Sequence': wraparound_seq
+            })
+        
+        if not igs_list:
+            print("   ⚠️ No suitable IGS regions found")
+            return annotation_df
+            
+        igs_df = pd.DataFrame(igs_list)
+        print(f"   ✅ Found {len(igs_df)} IGS regions (≥{min_igs_length}bp)")
+        
+        # Step 2: Create temporary FASTA file for IGS regions
+        temp_igs_fasta = f"temp_igs_{sequence_id}.fasta"
+        with open(temp_igs_fasta, "w") as f:
+            for _, row in igs_df.iterrows():
+                f.write(f">{row['IGS_ID']}\n{row['Sequence']}\n")
+        
+        # Step 3: Create BLAST database and run BLAST
+        blast_db_prefix = f"temp_oric_db_{sequence_id}"
+        blast_output = f"temp_oric_blast_{sequence_id}.csv"
+        
+        print("   🔍 Running BLAST against oriC database...")
+        
+        # Create BLAST database (suppress output)
+        os.system(f"makeblastdb -in {doric_fasta} -dbtype nucl -out {blast_db_prefix} > /dev/null 2>&1")
+        
+        # Run BLAST with CSV output
+        blast_cmd = (
+            f"blastn -query {temp_igs_fasta} -db {blast_db_prefix} "
+            f"-evalue {evalue_threshold} -outfmt '10 qseqid sseqid pident length "
+            f"mismatch gapopen qstart qend sstart send evalue bitscore stitle' "
+            f"-max_target_seqs 5 -out {blast_output} 2>/dev/null"
+        )
+        os.system(blast_cmd)
+        
+        # Step 4: Parse BLAST results
+        blast_hits = []
+        if os.path.exists(blast_output) and os.path.getsize(blast_output) > 0:
+            try:
+                blast_df = pd.read_csv(blast_output, header=None, names=[
+                    'qseqid', 'sseqid', 'pident', 'length', 'mismatch', 'gapopen',
+                    'qstart', 'qend', 'sstart', 'send', 'evalue', 'bitscore', 'stitle'
+                ])
+                
+                # Group by query and get best hit for each IGS
+                for igs_id, group in blast_df.groupby('qseqid'):
+                    best_hit = group.loc[group['bitscore'].idxmax()]
+                    blast_hits.append({
+                        'IGS_ID': igs_id,
+                        'Bit_Score': best_hit['bitscore'],
+                        'Identity': best_hit['pident'],
+                        'Length': best_hit['length'],
+                        'E_value': best_hit['evalue'],
+                        'Query_Start': best_hit['qstart'],
+                        'Query_End': best_hit['qend'],
+                        'Subject_Title': best_hit['stitle']
+                    })
+                    
+            except Exception as e:
+                print(f"   ⚠️ Error parsing BLAST results: {e}")
+        
+        # Step 5: Clean up temporary files
+        cleanup_files = [temp_igs_fasta, blast_output]
+        cleanup_files.extend([f"{blast_db_prefix}.{ext}" for ext in ['nhr','njs' ,'nin', 'nsq', 'ndb', 'not', 'ntf', 'nto']])
+        
+        for file in cleanup_files:
+            if os.path.exists(file):
+                try:
+                    os.remove(file)
+                except:
+                    pass
+        
+        if not blast_hits:
+            print("   ⚠️ No significant BLAST hits found")
+            return annotation_df
+            
+        blast_results_df = pd.DataFrame(blast_hits)
+        print(f"   📊 Found {len(blast_results_df)} BLAST hits")
+        
+        # Step 6: Find rep genes for proximity analysis
+        print("   🧬 Analyzing proximity to replication genes...")
+        
+        # Look for replication-related genes in Product column
+        rep_keywords = ['rep', 'replication', 'dna', 'origin', 'oric']
+        rep_genes = pd.DataFrame()
+        
+        if 'Product' in annotation_df.columns:
+            rep_mask = annotation_df['Product'].astype(str).str.lower().str.contains('|'.join(rep_keywords), na=False)
+            rep_genes = annotation_df[rep_mask].copy()
+        
+        # Step 7: Select best oriC candidate
+        # Priority: 1) Highest bit score, 2) Closest to rep genes
+        top_score = blast_results_df['Bit_Score'].max()
+        top_hits = blast_results_df[blast_results_df['Bit_Score'] == top_score]
+        
+        def calculate_distance_to_rep(row):
+            """Calculate minimum distance from IGS center to any rep gene"""
+            igs_info = igs_df[igs_df['IGS_ID'] == row['IGS_ID']].iloc[0]
+            igs_center = (igs_info['Start'] + igs_info['End']) / 2
+            
+            if rep_genes.empty:
+                return float('inf')
+            
+            distances = []
+            for _, rep_gene in rep_genes.iterrows():
+                rep_center = (rep_gene['Start'] + rep_gene['End']) / 2
+                distances.append(abs(igs_center - rep_center))
+            
+            return min(distances)
+        
+        top_hits = top_hits.copy()
+        top_hits['Dist_to_Rep'] = top_hits.apply(calculate_distance_to_rep, axis=1)
+        
+        # Select final candidate (closest to rep genes among top scorers)
+        final_hit = top_hits.sort_values(by='Dist_to_Rep').iloc[0]
+        best_igs = igs_df[igs_df['IGS_ID'] == final_hit['IGS_ID']].iloc[0]
+        
+        # Step 8: Create oriC annotation entry
+        print(f"   ✅ Selected {final_hit['IGS_ID']} (bit score: {final_hit['Bit_Score']:.1f}, "
+              f"identity: {final_hit['Identity']:.1f}%)")
+        print(f"   📍 Predicted oriV location: {best_igs['Start']}-{best_igs['End']} ({best_igs['Length']}bp)")
+        
+        if not rep_genes.empty:
+            print(f"   📍 Distance to nearest rep gene: {final_hit['Dist_to_Rep']:.0f}bp")
+        
+        # Create comprehensive product description
+        product_desc = f"Origin of replication (IGS-BLAST: {final_hit['Identity']:.1f}% identity)"
+        
+        oriC_entry = {
+            "Gene Name": "oriV",
+            "Product": product_desc,
+            "Start": best_igs['Start'],
+            "End": best_igs['End'], 
+            "Strand": "+",
+            "Category": "Origin of Replication",
+            "Translation": best_igs['Sequence'].upper()
+        }
+        
+        # Add missing columns to match dataframe structure
+        for col in annotation_df.columns:
+            if col not in oriC_entry:
+                oriC_entry[col] = ""
+        
+        # Add to annotation dataframe
+        annotation_df = pd.concat([annotation_df, pd.DataFrame([oriC_entry])], ignore_index=True)
+        
+        print("✅ oriC prediction complete using IGS-based approach")
+        return annotation_df
+        
+    except Exception as e:
+        print(f"❌ Error in oriC prediction: {e}")
+        import traceback
+        traceback.print_exc()
+        return annotation_df
 
 
 
-def predict_oriT(sequence,annotation_df,oriT_fastas,min_identity=80.0,min_length=100,location_buffer=50):
+# Fix 1: Suppress makeblastdb output in all BLAST functions
+
+def predict_oriT(sequence, annotation_df, oriT_fastas, min_identity=80.0, min_length=100, location_buffer=50):
+    """Predict oriT with cleaner output"""
+    print("🎯 Detecting origins of transfer...")
+    
     os.makedirs("orit_db_folder", exist_ok=True)
 
     with tempfile.NamedTemporaryFile(delete=False, suffix=".fasta", mode="w") as tmp_fasta:
@@ -591,18 +646,21 @@ def predict_oriT(sequence,annotation_df,oriT_fastas,min_identity=80.0,min_length
     all_hits = []
     blast_output_files = []
 
-    for oriT_fasta in oriT_fastas:
+    for i, oriT_fasta in enumerate(oriT_fastas, 1):
+        print(f"   📊 Searching database {i}/{len(oriT_fastas)}: {Path(oriT_fasta).name}")
+        
         db_name = Path(oriT_fasta).stem
         db_prefix = os.path.join("orit_db_folder", db_name)
         out_file = db_prefix + "_hits.csv"
         blast_output_files.append(out_file)
 
-        os.system(f"makeblastdb -in {oriT_fasta} -dbtype nucl -out {db_prefix}")
+        # ✨ FIXED: Suppress makeblastdb output
+        os.system(f"makeblastdb -in {oriT_fasta} -dbtype nucl -out {db_prefix} > /dev/null 2>&1")
         os.system(
             f"blastn -query {tmp_fasta_path} -db {db_prefix} "
             f"-evalue 1e-5 -outfmt '10 qseqid sseqid pident length mismatch gapopen "
             f"qstart qend sstart send evalue bitscore stitle' "
-            f"-max_target_seqs 10 -out {out_file}"
+            f"-max_target_seqs 10 -out {out_file} 2>/dev/null"
         )
 
         columns = [
@@ -627,7 +685,7 @@ def predict_oriT(sequence,annotation_df,oriT_fastas,min_identity=80.0,min_length
     shutil.rmtree("orit_db_folder", ignore_errors=True)
 
     if not all_hits:
-        print("[INFO] No oriT hits found.")
+        print("   ⚠️ No oriT sequences detected")
         return annotation_df
 
     all_hits_df = pd.concat(all_hits).sort_values("qstart")
@@ -649,11 +707,11 @@ def predict_oriT(sequence,annotation_df,oriT_fastas,min_identity=80.0,min_length
 
         new_row = {
             "Gene Name": "oriT",
-            "Product": f"Predicted origin of transfer ({hit['source_db']})",
+            "Product": f"Origin of transfer ({Path(hit['source_db']).stem})",
             "Start": start + 1,
             "End": end,
             "Strand": "+" if hit.qstart <= hit.qend else "-",
-            "Category": "Transfer",
+            "Category": "Origin of Transfer",
             "Translation": seq
         }
         for col in annotation_df.columns:
@@ -661,18 +719,14 @@ def predict_oriT(sequence,annotation_df,oriT_fastas,min_identity=80.0,min_length
                 new_row[col] = ""
         annotation_df = pd.concat([annotation_df, pd.DataFrame([new_row])], ignore_index=True)
 
-    print(f"[INFO] oriT prediction complete. Appended {len(hits_df)} oriT regions.")
+    print(f"   ✅ Found {len(hits_df)} origin(s) of transfer")
     return annotation_df
 
 
-def predict_replicons(
-    sequence,
-    annotation_df,
-    replicon_fasta,
-    min_identity=60.0,
-    min_length=50,
-    location_buffer=50
-):
+def predict_replicons(sequence, annotation_df, replicon_fasta, min_identity=60.0, min_length=50, location_buffer=50):
+    """Predict replicons with cleaner output"""
+    print("🎯 Detecting plasmid replicons...")
+    
     # Create temp query FASTA
     with tempfile.NamedTemporaryFile(delete=False, suffix=".fasta", mode="w") as tmp_fasta:
         tmp_fasta.write(">query_seq\n")
@@ -684,15 +738,15 @@ def predict_replicons(
     db_prefix = os.path.join("replicon_db_folder", Path(replicon_fasta).stem)
     blast_output = db_prefix + "_hits.csv"
 
-    # Create BLAST DB
-    os.system(f"makeblastdb -in {replicon_fasta} -dbtype nucl -out {db_prefix}")
+    # ✨ FIXED: Suppress makeblastdb output
+    os.system(f"makeblastdb -in {replicon_fasta} -dbtype nucl -out {db_prefix} > /dev/null 2>&1")
 
     # Run BLAST
     blast_cmd = (
         f"blastn -query {tmp_fasta_path} -db {db_prefix} "
         f"-evalue 1e-5 -outfmt '10 qseqid sseqid pident length mismatch gapopen "
         f"qstart qend sstart send evalue bitscore stitle' "
-        f"-max_target_seqs 10 -out {blast_output}"
+        f"-max_target_seqs 10 -out {blast_output} 2>/dev/null"
     )
     os.system(blast_cmd)
 
@@ -705,7 +759,6 @@ def predict_replicons(
         df = pd.read_csv(blast_output, header=None, names=columns)
         df = df[(df["pident"] >= min_identity) & (df["length"] >= min_length)]
     except Exception as e:
-        print(f"[ERROR] Could not read BLAST hits: {e}")
         df = pd.DataFrame()
 
     # Clean up temp files
@@ -715,7 +768,7 @@ def predict_replicons(
     shutil.rmtree("replicon_db_folder", ignore_errors=True)
 
     if df.empty:
-        print("[INFO] No replicon hits found.")
+        print("   ⚠️ No replicon sequences detected")
         return annotation_df
 
     # Filter overlapping hits
@@ -737,12 +790,12 @@ def predict_replicons(
             seq = str(Seq(seq).reverse_complement())
 
         new_row = {
-            "Gene Name": f"Replicon_{hit['sseqid']}",
-            "Product": f"Predicted plasmid replicon ({hit['sseqid']})",
+            "Gene Name": f"rep_{hit['sseqid']}",
+            "Product": f"Plasmid replicon ({hit['sseqid']})",
             "Start": start + 1,
             "End": end,
             "Strand": "+" if hit.qstart <= hit.qend else "-",
-            "Category": "Replication",
+            "Category": "Replicon",
             "Translation": seq
         }
         for col in annotation_df.columns:
@@ -750,11 +803,14 @@ def predict_replicons(
                 new_row[col] = ""
         annotation_df = pd.concat([annotation_df, pd.DataFrame([new_row])], ignore_index=True)
 
-    print(f"[INFO] Replicon prediction complete. Appended {len(hits_df)} replicon regions.")
+    print(f"   ✅ Found {len(hits_df)} replicon sequence(s)")
     return annotation_df
 
 
-def predict_transposons(sequence,annotation_df,transposon_fastas,min_identity=80.0,min_length=100,location_buffer=50):
+def predict_transposons(sequence, annotation_df, transposon_fastas, min_identity=80.0, min_length=100, location_buffer=50):
+    """Predict transposons with cleaner output"""
+    print("🎯 Detecting mobile genetic elements...")
+    
     # Write query sequence to temporary FASTA
     with tempfile.NamedTemporaryFile(delete=False, suffix=".fasta", mode="w") as tmp_fasta:
         tmp_fasta.write(">query_seq\n")
@@ -767,18 +823,20 @@ def predict_transposons(sequence,annotation_df,transposon_fastas,min_identity=80
     blast_output_files = []
     all_hits = []
 
-    for transposon_fasta in transposon_fastas:
+    for i, transposon_fasta in enumerate(transposon_fastas, 1):
+        print(f"   📊 Searching database {i}/{len(transposon_fastas)}: {Path(transposon_fasta).name}")
+        
         db_prefix = os.path.join(db_folder, Path(transposon_fasta).stem)
         out_file = db_prefix + "_hits.csv"
         blast_output_files.append(out_file)
 
-        # Make BLAST DB and run BLAST
-        os.system(f"makeblastdb -in {transposon_fasta} -dbtype nucl -out {db_prefix}")
+        # ✨ FIXED: Suppress makeblastdb output and FASTA warnings
+        os.system(f"makeblastdb -in {transposon_fasta} -dbtype nucl -out {db_prefix} > /dev/null 2>&1")
         os.system(
             f"blastn -query {tmp_fasta_path} -db {db_prefix} "
             f"-evalue 1e-5 -outfmt '10 qseqid sseqid pident length mismatch gapopen "
             f"qstart qend sstart send evalue bitscore stitle' "
-            f"-max_target_seqs 10 -out {out_file}"
+            f"-max_target_seqs 10 -out {out_file} 2>/dev/null"
         )
 
         # Load BLAST results
@@ -792,7 +850,7 @@ def predict_transposons(sequence,annotation_df,transposon_fastas,min_identity=80
             df["source_db"] = Path(transposon_fasta).name
             all_hits.append(df)
         except Exception as e:
-            print(f"[WARNING] Could not process {transposon_fasta}: {e}")
+            continue
 
     # Clean up temporary query and results
     os.remove(tmp_fasta_path)
@@ -802,7 +860,7 @@ def predict_transposons(sequence,annotation_df,transposon_fastas,min_identity=80
     shutil.rmtree(db_folder, ignore_errors=True)
 
     if not all_hits:
-        print("[INFO] No transposon hits found.")
+        print("   ⚠️ No mobile elements detected")
         return annotation_df
 
     all_hits_df = pd.concat(all_hits).sort_values("qstart")
@@ -829,7 +887,7 @@ def predict_transposons(sequence,annotation_df,transposon_fastas,min_identity=80
 
         new_row = {
             "Gene Name": name_part,
-            "Product": "Predicted insertion sequence" if is_element else "Predicted transposon",
+            "Product": "Insertion sequence" if is_element else "Transposon",
             "Start": start + 1,
             "End": end,
             "Strand": "+" if hit.qstart <= hit.qend else "-",
@@ -841,7 +899,7 @@ def predict_transposons(sequence,annotation_df,transposon_fastas,min_identity=80
                 new_row[col] = ""
         annotation_df = pd.concat([annotation_df, pd.DataFrame([new_row])], ignore_index=True)
 
-    print(f"[INFO] Transposon prediction complete. Appended {len(hits_df)} transposon regions.")
+    print(f"   ✅ Found {len(hits_df)} mobile element(s)")
     return annotation_df
 
 
