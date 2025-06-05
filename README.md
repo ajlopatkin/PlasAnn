@@ -31,6 +31,7 @@ pip install plasann
 
 **For macOS (Apple Silicon M1/M2):**
 ```bash
+brew tap brewsci/bio
 brew install blast prodigal infernal
 ```
 
