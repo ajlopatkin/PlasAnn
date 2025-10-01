@@ -87,7 +87,8 @@ def CDS_fasta_using_prodigal(fasta_path, output_name):
             "-f", "gbk",
             "-q",  # Quiet mode
             "-p", "meta",  # Metagenomic mode (more sensitive)
-            "-c"   # Closed ends (circular)
+            "-c",
+            "-m"   # Closed ends (circular)
         ]
         
         result = subprocess.run(
@@ -422,7 +423,7 @@ def generate_orf_annotation(cds_df, blast_folder):
         if blast_file.exists() and blast_file.stat().st_size > 0:
             df = pd.read_csv(blast_file)
 
-            for threshold in [80, 60, 40]:
+            for threshold in [80, 60]:
                 filtered = df[df["identity"] > threshold]
                 if not filtered.empty:
                     values = get_majority_values(filtered)
@@ -625,6 +626,11 @@ def Fixing_dataframe(df, fasta_sequence, output_path=None):
             df.at[idx, "feature type"] = "MGE"
 
         if cat =="Replication":
+            df.at[idx, "feature type"] = "Replicon"
+            df.at[idx, "Category"] = "Replicon"
+            df.at[idx, "Product"] = "Predicted replicon"
+
+        if cat =="Replicon":
             df.at[idx, "feature type"] = "Replicon"
             df.at[idx, "Category"] = "Replicon"
             df.at[idx, "Product"] = "Predicted replicon"
@@ -931,3 +937,172 @@ def print_sequence_statistics(plasmid_sequence, plasmid_name, plasmid_length):
         
         print(f"   GC content: {gc_content:.1f}%")
         print(f"   AT content: {at_content:.1f}%")
+
+
+# ==============================================================================
+# ADD THESE FUNCTIONS TO THE END OF YOUR essential_annotation.py FILE
+# ==============================================================================
+
+def filter_intergenic_genes(df, min_length=90, overlap_threshold=30.0):
+    """
+    Filter intergenic genes based on overlap and length criteria
+    
+    Args:
+        df (pd.DataFrame): Annotation dataframe with Intergenic_Flag column
+        min_length (int): Minimum gene length in bp (default: 90)
+        overlap_threshold (float): Maximum overlap percentage allowed (default: 50.0)
+    
+    Returns:
+        pd.DataFrame: Filtered dataframe with problematic intergenic genes removed
+    """
+    print(f"🔍 Filtering intergenic genes (min_length={min_length}bp, max_overlap={overlap_threshold}%)")
+    
+    # Create a copy to work with
+    filtered_df = df.copy()
+    
+    # Get original genes (not intergenic) - these are the reference CDS
+    original_genes = filtered_df[
+        (filtered_df.get('Intergenic_Flag', 0) == 0) & 
+        (filtered_df.get('feature type', '') == 'CDS')
+    ].copy()
+    
+    # Get intergenic genes to check
+    intergenic_genes = filtered_df[filtered_df.get('Intergenic_Flag', 0) == 1].copy()
+    
+    if intergenic_genes.empty:
+        print("   ✅ No intergenic genes found to filter")
+        return filtered_df
+    
+    print(f"   📊 Found {len(intergenic_genes)} intergenic genes to evaluate")
+    print(f"   📊 Comparing against {len(original_genes)} original CDS genes")
+    
+    # Track removal reasons
+    removal_stats = {
+        'too_short': 0,
+        'high_overlap': 0,
+        'both_issues': 0
+    }
+    
+    indices_to_remove = []
+    
+    # Check each intergenic gene
+    for idx, intergenic_gene in intergenic_genes.iterrows():
+        int_start = int(intergenic_gene['Start'])
+        int_end = int(intergenic_gene['End'])
+        int_length = int_end - int_start + 1
+        
+        # Check 1: Length filter
+        is_too_short = int_length < min_length
+        
+        # Check 2: Overlap filter
+        has_high_overlap = False
+        max_overlap_pct = 0
+        overlapping_gene = None
+        
+        for _, original_gene in original_genes.iterrows():
+            orig_start = int(original_gene['Start'])
+            orig_end = int(original_gene['End'])
+            orig_length = orig_end - orig_start + 1
+            
+            # Calculate overlap
+            overlap_start = max(int_start, orig_start)
+            overlap_end = min(int_end, orig_end)
+            overlap_length = max(0, overlap_end - overlap_start + 1)
+            
+            if overlap_length > 0:
+                # Calculate overlap percentage relative to the smaller gene
+                smaller_gene_length = min(int_length, orig_length)
+                overlap_pct = (overlap_length / smaller_gene_length) * 100
+                
+                if overlap_pct > max_overlap_pct:
+                    max_overlap_pct = overlap_pct
+                    overlapping_gene = original_gene['Gene Name']
+                
+                if overlap_pct >= overlap_threshold:
+                    has_high_overlap = True
+                    break
+        
+        # Determine removal reason and action
+        if is_too_short and has_high_overlap:
+            removal_stats['both_issues'] += 1
+            indices_to_remove.append(idx)
+            reason = f"too short ({int_length}bp) AND high overlap ({max_overlap_pct:.1f}% with {overlapping_gene})"
+        elif is_too_short:
+            removal_stats['too_short'] += 1
+            indices_to_remove.append(idx)
+            reason = f"too short ({int_length}bp < {min_length}bp)"
+        elif has_high_overlap:
+            removal_stats['high_overlap'] += 1
+            indices_to_remove.append(idx)
+            reason = f"high overlap ({max_overlap_pct:.1f}% with {overlapping_gene})"
+        else:
+            reason = f"kept (length={int_length}bp, max_overlap={max_overlap_pct:.1f}%)"
+        
+        # Show details for first few genes
+        if len(indices_to_remove) + len([x for x in intergenic_genes.index if x not in indices_to_remove]) <= 10:
+            gene_name = intergenic_gene.get('Gene Name', 'unknown')
+            action = "REMOVE" if idx in indices_to_remove else "KEEP"
+            print(f"      {action}: {gene_name} at {int_start}-{int_end} - {reason}")
+    
+    # Remove problematic intergenic genes
+    if indices_to_remove:
+        filtered_df = filtered_df.drop(indices_to_remove).reset_index(drop=True)
+        
+        print(f"   🗑️  REMOVAL SUMMARY:")
+        print(f"      Too short: {removal_stats['too_short']}")
+        print(f"      High overlap: {removal_stats['high_overlap']}")
+        print(f"      Both issues: {removal_stats['both_issues']}")
+        print(f"      Total removed: {len(indices_to_remove)}")
+        print(f"      Intergenic genes remaining: {len(intergenic_genes) - len(indices_to_remove)}")
+    else:
+        print(f"   ✅ No intergenic genes needed to be removed")
+    
+    # Final statistics
+    final_intergenic = len(filtered_df[filtered_df.get('Intergenic_Flag', 0) == 1])
+    final_total_cds = len(filtered_df[filtered_df.get('feature type', '') == 'CDS'])
+    
+    print(f"   📊 FINAL COUNTS:")
+    print(f"      Total CDS features: {final_total_cds}")
+    print(f"      Intergenic genes kept: {final_intergenic}")
+    
+    return filtered_df
+
+
+def validate_intergenic_filtering(df_before, df_after):
+    """
+    Validate that the filtering worked correctly
+    
+    Args:
+        df_before (pd.DataFrame): Dataframe before filtering
+        df_after (pd.DataFrame): Dataframe after filtering
+    """
+    print(f"\n🔍 VALIDATION OF INTERGENIC FILTERING:")
+    
+    # Count changes
+    before_total = len(df_before)
+    after_total = len(df_after)
+    removed_count = before_total - after_total
+    
+    before_intergenic = len(df_before[df_before.get('Intergenic_Flag', 0) == 1])
+    after_intergenic = len(df_after[df_after.get('Intergenic_Flag', 0) == 1])
+    intergenic_removed = before_intergenic - after_intergenic
+    
+    before_original = len(df_before[df_before.get('Intergenic_Flag', 0) == 0])
+    after_original = len(df_after[df_after.get('Intergenic_Flag', 0) == 0])
+    
+    print(f"   📊 Total features: {before_total} → {after_total} ({removed_count} removed)")
+    print(f"   📊 Intergenic genes: {before_intergenic} → {after_intergenic} ({intergenic_removed} removed)")
+    print(f"   📊 Original genes: {before_original} → {after_original} (should be unchanged)")
+    
+    # Validation checks
+    if after_original != before_original:
+        print(f"   ⚠️  WARNING: Original gene count changed! This shouldn't happen.")
+    else:
+        print(f"   ✅ Original genes preserved correctly")
+    
+    if removed_count == intergenic_removed:
+        print(f"   ✅ Only intergenic genes were removed")
+    else:
+        print(f"   ⚠️  WARNING: Non-intergenic genes may have been removed")
+    
+    return True

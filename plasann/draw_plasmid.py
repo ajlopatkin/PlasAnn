@@ -36,7 +36,7 @@ def draw_plasmid_map_from_genbank_file(genbank_file_path, map_file_path, plasmid
         # Define CDS category colors
         cds_category_colors = {
             'Conjugation': '#4AA532',
-            'Toxin-Antitoxin System': '#2067BF',
+            'Toxin and Antitoxin System': '#2067BF',
             'Plasmid Maintenance, Replication and Regulation': '#ED7E7E',
             'Metabolism': '#DBA602',
             'Stress Response': '#7859D3',
@@ -163,7 +163,7 @@ def draw_plasmid_map_from_genbank_file(genbank_file_path, map_file_path, plasmid
         ori_feats = oriv_feats + orit_feats
         
         if ori_feats:
-            ori_track = sector.add_track((84, 88))
+            ori_track = sector.add_track((86, 90))
             
             # Color each feature based on its type - use circles for origins
             for feat in ori_feats:
@@ -340,7 +340,7 @@ def draw_plasmid_map_from_genbank_file(genbank_file_path, map_file_path, plasmid
         )
 
         # Legend 2: Additional Features (only show features that are present)
-        if additional_features_present:
+        '''if additional_features_present:
             additional_legend_lines = [
                 Line2D([], [], color=additional_feature_colors[feature], lw=4, label=feature)
                 for feature in additional_features_present
@@ -348,6 +348,63 @@ def draw_plasmid_map_from_genbank_file(genbank_file_path, map_file_path, plasmid
             
             fig.legend(
                 handles=additional_legend_lines,
+                bbox_to_anchor=(1.02, 0.25),
+                loc="upper left",
+                borderaxespad=0,
+                fontsize=12,
+                title="Additional Features",
+                title_fontsize=14
+            )'''
+
+        # Legend 2: Additional Features (only show features that are present)
+        '''    additional_legend_handles = []
+            
+            for feature in additional_features_present:
+                color = additional_feature_colors[feature]
+                
+                # Use circles for Origin features, lines for others
+                if feature in ['Origin of Replication', 'Origin of Transfer']:
+                    # Create circle marker
+                    handle = Line2D([], [], color=color, marker='o', markersize=8, 
+                                  linestyle='None', label=feature, markeredgecolor='black', markeredgewidth=0.5)
+                else:
+                    # Use line for other features
+                    handle = Line2D([], [], color=color, lw=4, label=feature)
+                
+                additional_legend_handles.append(handle)
+            
+            fig.legend(
+                handles=additional_legend_handles,
+                bbox_to_anchor=(1.02, 0.25),
+                loc="upper left",
+                borderaxespad=0,
+                fontsize=12,
+                title="Additional Features",
+                title_fontsize=14
+            )'''
+        if additional_features_present:
+            additional_legend_handles = []
+            
+            # Define the desired order for additional features
+            feature_order = ['Origin of Replication', 'Origin of Transfer', 'Replicon', 'Mobile Element']
+            
+            for feature in feature_order:
+                if feature in additional_features_present:  # Only include if feature is present
+                    color = additional_feature_colors[feature]
+                    
+                    # Use circles for Origin features, lines for others
+                    if feature in ['Origin of Replication', 'Origin of Transfer']:
+                        # Create circle marker
+                        handle = Line2D([], [], color=color, marker='o', markersize=8, 
+                                      linestyle='None', label=feature, markeredgecolor='black', markeredgewidth=0.5)
+                    else:
+                        # Use line for other features
+                        handle = Line2D([], [], color=color, lw=4, label=feature)
+                    
+                    additional_legend_handles.append(handle)
+            
+            fig.legend(
+                handles=additional_legend_handles,
                 bbox_to_anchor=(1.02, 0.25),
                 loc="upper left",
                 borderaxespad=0,
@@ -373,3 +430,5 @@ def draw_plasmid_map_from_genbank_file(genbank_file_path, map_file_path, plasmid
         warnings.resetwarnings()
         
         return False
+
+

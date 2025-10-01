@@ -1,25 +1,32 @@
 import argparse
 import os
-from .essential_annotation import *
-from .database_download import *
-from .draw_plasmid import *
-from . import blast_search as blast
+import sys
+import time
+import datetime
+
+# Handle both relative and absolute imports
+from plasann.database_download import DATABASE_DIR
+from plasann.essential_annotation import *
+from plasann.database_download import *
+from plasann.draw_plasmid import *
+from plasann import blast_search as blast
+
 import glob
 import pandas as pd
 import shutil
-import sys
 import platform
 from Bio import SeqIO, Entrez
 from Bio.Data import CodonTable
 from collections import defaultdict
 import uuid
-import shutil
 import time  
 import threading
-import uuid
+
+from pathlib import Path
+DATABASE_DIR = Path.home() / ".plasann" / "Database"
 
 # Version information
-__version__ = "1.1.3"
+__version__ = "1.1.6"
 __author__ = "Habibul Islam"
 __email__ = "hislam2@ur.rochester.edu"
 
@@ -333,7 +340,7 @@ def process_single_file_complete_pipeline(input_path, output_base, file_type, cu
             print("🔍 Running BLAST annotation...")
             try:
                 blast.perform_blast_multiprocessing(CDS_dataframe, blast_db_prefix, blast_temp_dir)
-                blast.annotate_blast_results(blast_temp_dir, "Database/Database.csv")
+                blast.annotate_blast_results(blast_temp_dir, f"{DATABASE_DIR}/Database.csv")
                 dataframe_after_blast = generate_orf_annotation(CDS_dataframe, blast_temp_dir)
             except Exception as e:
                 print(f"❌ BLAST annotation failed: {e}")
@@ -363,12 +370,18 @@ def process_single_file_complete_pipeline(input_path, output_base, file_type, cu
             # Full pipeline with sequence-dependent analyses
             print(f"\n📊 STEP 4: Mobile Element, Origin of replication and transfer Detection")
             try:
-                orit_fastas = ["Database/orit.fna", "Database/oriT_TNcentral.fasta"]
-                rep_fasta = "Database/plasmidfinder.fasta"
-                transposon_fastas = ["Database/tncentral_cleaned.fa","Database/transposon.fasta"]
-                rfam_cm_path = "Database/Rfam.cm"
+                orit_fastas = [f"{DATABASE_DIR}/orit.fna", f"{DATABASE_DIR}/oriT_TNcentral.fasta"]
+                rep_fasta = f"{DATABASE_DIR}/plasmidfinder.fasta"
+                transposon_fastas = [f"{DATABASE_DIR}/tncentral_cleaned.fa", f"{DATABASE_DIR}/transposon.fasta"]
+                rfam_cm_path = f"{DATABASE_DIR}/Rfam.cm"
+                mobile_fastas_dict = {
+                    'oriT': [f"{DATABASE_DIR}/orit.fna", f"{DATABASE_DIR}/oriT_TNcentral.fasta"],
+                    'replicons': [f"{DATABASE_DIR}/plasmidfinder.fasta"],
+                    'transposons': [f"{DATABASE_DIR}/tncentral_cleaned.fa", f"{DATABASE_DIR}/transposon.fasta"]
+                }
+
                 
-                dataframe_after_oric = blast.predict_oriC(sequence, dataframe_after_blast, "Database/oric.fna")
+                dataframe_after_oric = blast.predict_oriC(sequence, dataframe_after_blast, f"{DATABASE_DIR}/oric.fna")
                 dataframe_after_orit = blast.predict_oriT(sequence, dataframe_after_oric, orit_fastas)
                 dataframe_after_replicon = blast.predict_replicons(sequence, dataframe_after_orit, rep_fasta)
                 dataframe_after_transposon = blast.predict_transposons(sequence, dataframe_after_replicon, transposon_fastas)
@@ -416,8 +429,35 @@ def process_single_file_complete_pipeline(input_path, output_base, file_type, cu
                 print("   Continuing without UniProt annotation...")
         elif uniprot_blast and not uniprot_tsv:
             print("❌ UniProt BLAST requested but no TSV file configured")
-        
+
+        # Filter intergenic genes based on overlap and length criteria
+        if 'Intergenic_Flag' in final_dataframe_fixed.columns:
+            intergenic_count_before = len(final_dataframe_fixed[final_dataframe_fixed['Intergenic_Flag'] == 1])
+            if intergenic_count_before > 0:
+                print("🔍 Filtering intergenic genes based on overlap and length criteria...")
+                
+                # Store before filtering for validation
+                df_before_filtering = final_dataframe_fixed.copy()
+                
+                # Apply filtering
+                final_dataframe_fixed = filter_intergenic_genes(
+                    final_dataframe_fixed, 
+                    min_length=90,          # Minimum 30 amino acids * 3 = 90bp
+                    overlap_threshold=50.0  # 50% overlap threshold
+                )
+                
+                # Validate the filtering worked correctly
+                validate_intergenic_filtering(df_before_filtering, final_dataframe_fixed)
+                
+                print("✅ Intergenic gene filtering completed")
+            else:
+                print("⭐ No intergenic genes found to filter")
+        else:
+            print("⭐ No Intergenic_Flag column found - skipping intergenic filtering")
+
         # Step 4: Write outputs with error handling
+        
+        
         try:
             output_csv = os.path.join(output_folder, f"{output_name}_annotations.csv")
             final_dataframe_fixed.to_csv(output_csv, index=False)
@@ -732,6 +772,8 @@ def CDS_genbank_retain(genbank_file, output_name, email="hislam2@ur.rochester.ed
     return df, str(full_seq) if full_seq else None, len(full_seq) if full_seq else None
 
 def main():
+
+    start_time = time.time()
     parser = argparse.ArgumentParser(
         description=f"""
 PlasAnn v{__version__} - Comprehensive Plasmid Annotation Pipeline
@@ -826,7 +868,7 @@ PlasAnn v{__version__} - Comprehensive Plasmid Annotation Pipeline
         if args.uniprot_tsv:
             uniprot_tsv_path = args.uniprot_tsv
         else:
-            uniprot_tsv_path = "Database/uniprot_plasmids.tsv"
+            uniprot_tsv_path = f"{DATABASE_DIR}/uniprot_plasmids.tsv"
         
         # Check if file exists (will be available after database download)
         args.uniprot_tsv = uniprot_tsv_path
@@ -861,7 +903,7 @@ PlasAnn v{__version__} - Comprehensive Plasmid Annotation Pipeline
             print(f"   📥 UniProt TSV will be available after database download")
     else:
         print(f"   🧬 UniProt BLAST: Disabled")
-    
+
     # Handle different input types
     if args.type == "auto":
         # Auto mode: determine GenBank processing method
@@ -900,6 +942,9 @@ PlasAnn v{__version__} - Comprehensive Plasmid Annotation Pipeline
         if not success:
             print("❌ Processing failed")
             sys.exit(1)
+
+    end_time = time.time()
+    print(f"\n⏱️ Total time: {end_time - start_time:.1f} seconds")
 
 def cli_main():
     """Entry point for pip-installed PlasAnn command"""

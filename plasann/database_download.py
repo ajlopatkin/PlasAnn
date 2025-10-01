@@ -11,9 +11,12 @@ import pandas as pd
 import subprocess
 from pathlib import Path
 
+# Fixed database location - always in user's home directory
+DATABASE_DIR = Path.home() / ".plasann" / "Database"
+
 # ⚠️ REPLACE "XXXXXXX" WITH YOUR ACTUAL ZENODO RECORD ID ⚠️
 ZENODO_CONFIG = {
-    "record_id": "15583460",  # ← Your actual Zenodo record ID
+    "record_id": "15583460",
     "version": "v2",
     "zip_filename": "plasann_databases_v1.1.0.zip"
 }
@@ -36,7 +39,7 @@ def get_zenodo_record_info(record_id):
 
 def download_from_zenodo():
     """Download databases from Zenodo (primary method)"""
-    print("🏛️ Downloading from Zenodo (primary source)...")
+    print("🛒 Downloading from Zenodo (primary source)...")
     
     record_id = ZENODO_CONFIG["record_id"]
     zip_filename = ZENODO_CONFIG["zip_filename"]
@@ -111,8 +114,7 @@ def download_from_gdrive():
     """Download databases from Google Drive (fallback)"""
     print("📁 Downloading from Google Drive (fallback)...")
     
-    db_folder = Path("Database")
-    db_folder.mkdir(exist_ok=True)
+    DATABASE_DIR.mkdir(parents=True, exist_ok=True)
     
     folder_id = GDRIVE_CONFIG["folder_id"]
     
@@ -123,7 +125,7 @@ def download_from_gdrive():
             print(f"   Attempt {attempt + 1}/{max_retries}...")
             gdown.download_folder(
                 f"https://drive.google.com/drive/folders/{folder_id}",
-                output=str(db_folder),
+                output=str(DATABASE_DIR),
                 quiet=False,
                 use_cookies=False,
                 remaining_ok=True
@@ -144,8 +146,7 @@ def extract_databases(zip_path):
         return  # Already extracted (Google Drive method)
     
     print("📦 Extracting database files...")
-    db_folder = Path("Database")
-    db_folder.mkdir(exist_ok=True)
+    DATABASE_DIR.mkdir(parents=True, exist_ok=True)
     
     with zipfile.ZipFile(zip_path, 'r') as zip_ref:
         for member in zip_ref.namelist():
@@ -161,7 +162,7 @@ def extract_databases(zip_path):
                 target_filename = member
             
             if target_filename:  # Skip empty filenames
-                target_path = db_folder / target_filename
+                target_path = DATABASE_DIR / target_filename
                 target_path.parent.mkdir(parents=True, exist_ok=True)
                 
                 with zip_ref.open(member) as source, open(target_path, 'wb') as target:
@@ -173,7 +174,6 @@ def extract_databases(zip_path):
 
 def verify_database():
     """Verify all essential database files are present"""
-    db_folder = Path("Database")
     essential_files = [
         "Database.csv",
         "orit.fna", 
@@ -183,12 +183,12 @@ def verify_database():
         "transposon.fasta", 
         "Rfam.cm",
         "oric.fna",
-        "uniprot_plasmids.tsv"  # Added UniProt TSV file
+        "uniprot_plasmids.tsv"
     ]
     
     missing_files = []
     for filename in essential_files:
-        file_path = db_folder / filename
+        file_path = DATABASE_DIR / filename
         if not file_path.exists():
             missing_files.append(filename)
     
@@ -200,7 +200,7 @@ def verify_database():
     # Show file sizes for confirmation
     total_size = 0
     for filename in essential_files:
-        file_path = db_folder / filename
+        file_path = DATABASE_DIR / filename
         if file_path.exists():
             size = file_path.stat().st_size
             total_size += size
@@ -209,10 +209,9 @@ def verify_database():
 
 def download_database():
     """Main function to download databases with fallback"""
-    db_folder = Path("Database")
-    db_folder.mkdir(exist_ok=True)
+    DATABASE_DIR.mkdir(parents=True, exist_ok=True)
     
-    version_file = db_folder / ".version"
+    version_file = DATABASE_DIR / ".version"
     current_version = ZENODO_CONFIG["version"]
     
     # First, check if all essential files are present
@@ -261,13 +260,13 @@ def download_database():
                 f.write(current_version)
             
             print(f"✅ Successfully downloaded databases from {source_name}")
-            print(f"   📁 Database location: {db_folder.absolute()}")
+            print(f"   📁 Database location: {DATABASE_DIR.absolute()}")
             return
             
         except Exception as e:
             print(f"❌ {source_name} failed: {e}")
             # Clean up any partial downloads
-            if zip_path and zip_path.exists():
+            if 'zip_path' in locals() and zip_path and zip_path.exists():
                 zip_path.unlink()
             continue
     
@@ -275,7 +274,7 @@ def download_database():
 
 def prepare_blast_database():
     """Prepare BLAST database from downloaded Database.csv"""
-    db_csv = Path("Database/Database.csv")
+    db_csv = DATABASE_DIR / "Database.csv"
     
     if not db_csv.exists():
         print("❌ Database.csv not found. Running download_database()...")
@@ -322,8 +321,7 @@ def prepare_blast_database():
 
 def get_database_info():
     """Get information about the current database installation"""
-    db_folder = Path("Database")
-    version_file = db_folder / ".version"
+    version_file = DATABASE_DIR / ".version"
     
     if not version_file.exists():
         return "No database installed"
@@ -333,7 +331,7 @@ def get_database_info():
             version = f.read().strip()
         
         # Count files and calculate size
-        db_files = list(db_folder.glob("*"))
+        db_files = list(DATABASE_DIR.glob("*"))
         total_size = sum(f.stat().st_size for f in db_files if f.is_file())
         
         return {
@@ -341,15 +339,14 @@ def get_database_info():
             "files": len(db_files),
             "size_mb": total_size // 1024 // 1024,
             "zenodo_record": ZENODO_CONFIG["record_id"],
-            "location": str(db_folder.absolute())
+            "location": str(DATABASE_DIR.absolute())
         }
     except Exception as e:
         return f"Error reading database info: {e}"
 
 def force_redownload():
     """Force redownload of databases (removes version file)"""
-    db_folder = Path("Database")
-    version_file = db_folder / ".version"
+    version_file = DATABASE_DIR / ".version"
     
     if version_file.exists():
         version_file.unlink()
