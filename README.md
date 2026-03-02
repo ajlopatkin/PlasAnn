@@ -105,6 +105,7 @@ When using GenBank files, you can choose:
 
 - `--uniprot-blast`: Run enhanced UniProt BLAST annotation (slower but more comprehensive)
 - `--min-identity`: Minimum identity percentage for UniProt BLAST hits (default: 50%)
+- `--no-map`: Skip plasmid map (PNG) generation
 - `--version`: Show version information
 - `--check-deps`: Check external dependency status
 

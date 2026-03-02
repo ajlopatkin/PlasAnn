@@ -241,7 +241,8 @@ def run_on_single_genbank(input_path, output_base, use_overwrite=False, custom_n
 
 def process_single_file_complete_pipeline(input_path, output_base, file_type, custom_name=None, 
                                          overwrite=False, shared_session=False, 
-                                         uniprot_blast=False, uniprot_tsv=None, min_identity=50):
+                                         uniprot_blast=False, uniprot_tsv=None, min_identity=50,
+                                         no_map=False):
     """Process a single file through the complete annotation pipeline - ENHANCED VERSION"""
     global CDS_dataframe
     
@@ -477,12 +478,14 @@ def process_single_file_complete_pipeline(input_path, output_base, file_type, cu
             description = "Annotated " + output_name
             write_genbank_from_annotation(final_dataframe_fixed, sequence, output_genbank, output_name, output_name, description)
             
-            print("🎨 Creating plasmid map...")
-            output_map = os.path.join(output_folder, f"{output_name}_map.png")
-            
-            map_success = draw_plasmid_map_from_genbank_file(output_genbank, output_map, output_name)
-            if not map_success:
-                print("⚠️ Plasmid map generation failed, but analysis completed successfully")
+            if no_map:
+                print("⏭️  Skipping plasmid map generation (--no-map)")
+            else:
+                print("🎨 Creating plasmid map...")
+                output_map = os.path.join(output_folder, f"{output_name}_map.png")
+                map_success = draw_plasmid_map_from_genbank_file(output_genbank, output_map, output_name)
+                if not map_success:
+                    print("⚠️ Plasmid map generation failed, but analysis completed successfully")
                 
         except Exception as e:
             print(f"⚠️ GenBank/map generation failed: {e}")
@@ -532,7 +535,7 @@ def process_single_file_complete_pipeline(input_path, output_base, file_type, cu
         return False
 
 def process_folder(input_folder, output_base, file_type, custom_name=None, overwrite=False,
-                  uniprot_blast=False, uniprot_tsv=None, min_identity=50):
+                  uniprot_blast=False, uniprot_tsv=None, min_identity=50, no_map=False):
     """Process all files in a folder of specified type"""
     
     if file_type == "fasta":
@@ -575,7 +578,7 @@ def process_folder(input_folder, output_base, file_type, custom_name=None, overw
         success = process_single_file_complete_pipeline(
             file_path, output_base, file_type, None, overwrite, 
             shared_session=True, uniprot_blast=uniprot_blast, 
-            uniprot_tsv=uniprot_tsv, min_identity=min_identity
+            uniprot_tsv=uniprot_tsv, min_identity=min_identity, no_map=no_map
         )
         if success:
             successful_files += 1
@@ -601,7 +604,7 @@ def process_folder(input_folder, output_base, file_type, custom_name=None, overw
 
 
 def process_auto_folder(input_folder, output_base, custom_name=None, overwrite=False,
-                       uniprot_blast=False, uniprot_tsv=None, min_identity=50):
+                       uniprot_blast=False, uniprot_tsv=None, min_identity=50, no_map=False):
     """Process folder containing mixed FASTA and GenBank files"""
     
     fasta_extensions = ['.fasta', '.fa', '.fsa', '.fna']
@@ -651,7 +654,7 @@ def process_auto_folder(input_folder, output_base, custom_name=None, overwrite=F
         success = process_single_file_complete_pipeline(
             fasta_file, output_base, "fasta", None, False, 
             shared_session=True, uniprot_blast=uniprot_blast, 
-            uniprot_tsv=uniprot_tsv, min_identity=min_identity
+            uniprot_tsv=uniprot_tsv, min_identity=min_identity, no_map=no_map
         )
         if success:
             successful_files += 1
@@ -666,7 +669,7 @@ def process_auto_folder(input_folder, output_base, custom_name=None, overwrite=F
         success = process_single_file_complete_pipeline(
             gb_file, output_base, "genbank", None, overwrite, 
             shared_session=True, uniprot_blast=uniprot_blast, 
-            uniprot_tsv=uniprot_tsv, min_identity=min_identity
+            uniprot_tsv=uniprot_tsv, min_identity=min_identity, no_map=no_map
         )
         if success:
             successful_files += 1
@@ -845,6 +848,8 @@ PlasAnn v{__version__} - Comprehensive Plasmid Annotation Pipeline
                        help="Path to UniProt TSV file (default: Database/uniprot_plasmids.tsv)")
     parser.add_argument("--min-identity", type=float, default=50,
                        help="Minimum identity percentage for UniProt BLAST hits (default: 50%%)")
+    parser.add_argument("--no-map", action="store_true",
+                       help="Skip plasmid map (PNG) generation")
 
     args = parser.parse_args()
 
@@ -909,18 +914,21 @@ PlasAnn v{__version__} - Comprehensive Plasmid Annotation Pipeline
         # Auto mode: determine GenBank processing method
         use_overwrite = args.overwrite and not args.retain
         process_auto_folder(args.input, args.output, args.name, use_overwrite,
-                           args.uniprot_blast, args.uniprot_tsv, args.min_identity)
+                           args.uniprot_blast, args.uniprot_tsv, args.min_identity,
+                           no_map=args.no_map)
         
     elif os.path.isdir(args.input):
         # Folder mode: process all files of specified type
         if args.type == "genbank":
             use_overwrite = args.overwrite and not args.retain
             process_folder(args.input, args.output, args.type, args.name, use_overwrite,
-                          args.uniprot_blast, args.uniprot_tsv, args.min_identity)
+                          args.uniprot_blast, args.uniprot_tsv, args.min_identity,
+                          no_map=args.no_map)
         else:
             # FASTA folder - overwrite flag doesn't apply
             process_folder(args.input, args.output, args.type, args.name, False,
-                          args.uniprot_blast, args.uniprot_tsv, args.min_identity)
+                          args.uniprot_blast, args.uniprot_tsv, args.min_identity,
+                          no_map=args.no_map)
         
     else:
         # Single file mode: process one file (shared_session=False means build databases)
@@ -929,14 +937,16 @@ PlasAnn v{__version__} - Comprehensive Plasmid Annotation Pipeline
             success = process_single_file_complete_pipeline(
                 args.input, args.output, args.type, args.name, use_overwrite, 
                 shared_session=False, uniprot_blast=args.uniprot_blast, 
-                uniprot_tsv=args.uniprot_tsv, min_identity=args.min_identity
+                uniprot_tsv=args.uniprot_tsv, min_identity=args.min_identity,
+                no_map=args.no_map
             )
         else:
             # FASTA file - overwrite flag doesn't apply
             success = process_single_file_complete_pipeline(
                 args.input, args.output, args.type, args.name, False, 
                 shared_session=False, uniprot_blast=args.uniprot_blast, 
-                uniprot_tsv=args.uniprot_tsv, min_identity=args.min_identity
+                uniprot_tsv=args.uniprot_tsv, min_identity=args.min_identity,
+                no_map=args.no_map
             )
             
         if not success:
