@@ -1,3 +1,3 @@
 """PlasAnn - Comprehensive Plasmid Annotation Pipeline"""
 
-__version__ = "1.1.6"
+__version__ = "1.1.6.dev1"
